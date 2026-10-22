@@ -1,13 +1,13 @@
 # HP 笔记本（Ryzen 9 9955HX + RTX 5070）黑苹果 macOS 26 Tahoe 实战记录
 
-> 从 macOS 15.8.1 (Sequoia) 升级到 26.7.1 (Tahoe)，并让显示、亮度、Wi-Fi、蓝牙、音频输出、电池全部可用。
+> 在 HP 8F06 上**全新安装** macOS 26.7.1 (Tahoe) 并与 15.8.1 (Sequoia) 双系统共存，让显示、亮度、Wi-Fi、蓝牙、音频输出、电池全部可用。
 > 除内置麦克风外，整机功能完整。
 
 ## 机器
 
 | 项目 | 值 |
 |---|---|
-| 机型 | HP，主板 ID **`8F06`**（ACP 的 `compatible` 报 `pci103c,8f06`；与 OMEN 16-ap1xxx 同系，见 [acp6x-omen-dkms](https://github.com/NevetScar/acp6x-omen-dkms)） |
+| 机型 | **HP OMEN 16-ap1xxx**（主板 ID `8F06`，ACP 的 `compatible` 报 `pci103c,8f06`） |
 | CPU | AMD Ryzen 9 9955HX 16-Core（Zen 5, Fire Range） |
 | 显卡 | NVIDIA GeForce RTX 5070 Laptop GPU 12 GB（device id `0x2D18`） |
 | 屏幕 | 2560 × 1600 |
@@ -33,30 +33,95 @@
 
 ---
 
-# 一、升级路径：15.8.1 → 26.7.1
+# 一、迁移路径：15.8.1 → 26.7.1（全新安装，不是升级）
 
-macOS 26 移除了不少东西，跨大版本升级在 AMD 黑苹果上尤其容易卡死（最常见的现象是安装器"最后不到一分钟"卡住）。
+## 先说结论
 
-## 工具
+**这台机器无法通过软件更新升级到 26。** 我们试过官方推荐路径，全部失败，最后采用的是：
 
-用 [NullMoth 1401](https://github.com/nullmoth/1401) 的 Mac 端应用：
+```
+1. 保留 15.8.1 不动
+2. 全新安装 26.7.1 到一个新的 APFS 卷（双系统）
+3. 从 15 里把 NVIDIA 驱动"写进" 26（文件复制 + 开机自动安装）
+```
 
-1. 安装 `1401-Mac-*.dmg`（驱动仓库 [nvidia-macos-driver](https://github.com/nullmoth/nvidia-macos-driver) 的 Releases）
-2. 打开后点 **「Prepare this Mac for Tahoe」**
+## 试过但失败的路径：软件更新 + 1401 的 Tahoe 准备
 
-它会做三件事：
+按 [NullMoth 1401](https://github.com/nullmoth/1401) 的文档，正确流程是：
 
-- 把 NVIDIA 驱动升级到最新（自带 Tahoe 构建）
-- **停用（park）驱动** —— 安装器运行期间不能有第三方显卡驱动占着 GPU
-- **缩小 GPU BAR**（`ResizeAppleGpuBars 0` / `ResizeGpuBars -1`）
+1. 安装 `1401-Mac-*.dmg`
+2. 点 **「Prepare this Mac for Tahoe」** —— 它会：
+   - 把 NVIDIA 驱动升级到最新（自带 Tahoe 构建）
+   - **停用（park）驱动**（安装期间不能有第三方显卡驱动占着 GPU）
+   - **缩小 GPU BAR**（`ResizeAppleGpuBars 0` / `ResizeGpuBars -1`）
+3. 走 **系统设置 → 通用 → 软件更新** 升级
 
-> **这一步是必须的**。不做的话，软件更新会在"准备更新"阶段直接失败（弹窗"未能准备软件更新"），
-> 或者安装到最后卡死 —— 因为安装器初始化 GPU 时撞上了驱动和过大的 BAR。
+**实际遇到两个失败：**
 
-3. 然后走 **系统设置 → 通用 → 软件更新** 升级
-4. 升级后首次启动，驱动会自动配置 Tahoe 版本并自动重启一次
+| 阶段 | 现象 |
+|---|---|
+| 准备阶段 | 弹窗「**未能准备软件更新。请重试。**」，`/Library/Updates` 里一个包都没下载 |
+| 强行换完整安装器 | 安装器跑到「**剩不到一分钟**」卡死不动 |
 
-> 我们的目标构建是 **26.7.1 (25G241)**，这是 `MtkWlanNative` 和 `LegionBtFix` 硬性要求的版本。
+可能的原因（未逐一验证）：
+
+- 系统做过 SIP 定制（`csr-active-config 0x0A43`）+ AMFI 绕过（`amfi=0x80`）
+- `/Library/Extensions` 里存在第三方驱动（NVIDIA），升级时要迁移它们
+- 26 对 SMBIOS / 系统卷密封的要求更严
+
+> 结论：**这台机器上，跨大版本"原地升级"走不通，别在这上面耗时间。**
+
+## 实际采用的路径：全新安装到新卷
+
+```
+原盘布局（1 TB）
+├── ESP              536 MB
+├── Windows (NTFS)   214.8 GB
+├── Data (NTFS)      674.7 GB
+└── APFS 容器        ← 15.8.1
+
+安装 26 之后
+├── ESP
+├── Windows
+├── Data
+├── APFS 容器 disk1   53.7 GB   ← 新装的 26.7.1
+└── APFS 容器 disk2  134.2 GB   ← 原来的 15.8.1（完整保留）
+```
+
+**好处**：
+
+- 15.8.1 原样保留，随时可以回退
+- 26 装坏了删掉重来即可
+- 两个系统独立，互不影响
+
+**代价**：
+
+- 26 里是**全新的系统**，没有驱动、没有音频、没有 Wi-Fi/蓝牙 —— 这些都要重装（见后续各节）
+- 引导器要用能同时识别两个系统的 OpenCore
+
+> 目标构建必须是 **26.7.1 (25G241)** —— 这是 `MtkWlanNative` 和 `LegionBtFix` 硬性要求的版本。
+> 装成别的 26.x 小版本，这两个 kext 会直接拒绝加载。
+
+## 关键：驱动要"从 15 写进 26"
+
+新装的 26 里没有任何 NVIDIA 驱动，启动后只有一个鼠标光标（见下一节）。而看不到界面就进不了终端，
+所以驱动是**在 15 里操作、由 26 自己完成安装**的：
+
+```
+在 15.8.1 里：
+  1. 把驱动包完整解压到 26 的 /Users/Shared/nullmoth/
+  2. 往 26 的 /Library/LaunchDaemons/ 放一个开机启动项
+  3. 在 26 的 /Library/Extensions/ 里预先把 kext 放好
+
+重启进 26：
+  4. 开机时 LaunchDaemon 自动执行官方 install.sh
+  5. install.sh 在 26 内部重建内核集合（这一步必须发生在 26 里）
+  6. 脚本自动重启
+
+第二次进 26：有画面了
+```
+
+详细原理与踩坑见下一节。
 
 ---
 
@@ -502,6 +567,15 @@ bluetoothInternalControllerInfo    <0000000000000000000000000000>
 | [acidanthera/AppleALC](https://github.com/acidanthera/AppleALC) | 音频 layout |
 | [acidanthera/BrcmPatchRAM](https://github.com/acidanthera/BrcmPatchRAM) | BlueToolFixup |
 | [NevetScar/acp6x-omen-dkms](https://github.com/NevetScar/acp6x-omen-dkms) | 同款机器的 Linux ACP6x 麦克风补丁（macOS 无法使用，供参考） |
+
+---
+
+---
+
+# 十五、后续计划
+
+- [ ] **USB 映射**（USBMap / USBToolBox）：目前用的是 `USBToolBox` + `UTBDefault` 通用映射，端口类型（内建/USB2/USB3）尚未按本机定制
+- [ ] 内置麦克风：需要 macOS 版 ACP6x 驱动（见第十节）
 
 ---
 
