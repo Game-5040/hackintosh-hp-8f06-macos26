@@ -123,6 +123,29 @@
 
 详细原理与踩坑见下一节。
 
+## 后续：回收 15.8.1 的空间
+
+确认 26 稳定运行几天后，可以删除旧系统并把空间并入 26（**不可逆**，删前请确认个人文件已备份）：
+
+```bash
+# 1. 确认 disk2 是那个 134.2 GB 的旧系统容器
+diskutil list disk2
+
+# 2. 删除旧系统的整个 APFS 容器（含其中的 Time Machine 备份卷）
+sudo diskutil apfs deleteContainer disk2
+
+# 3. 把释放出来的连续空间并入 26 的容器（0 = 用满所有可用空间）
+sudo diskutil apfs resizeContainer disk1 0
+
+# 4. 验证
+diskutil list && df -h /
+```
+
+本机结果：26 的容器从 **53.7 GB 扩到 187.9 GB**，可用空间从 14 GB 变成 138 GB。
+
+> 注意：删除后就没有可回退的旧系统了，唯一救援介质是 1401 安装 U 盘和事先备份的 EFI。
+
+
 ---
 
 # 二、显卡：NullMoth NVIDIA 驱动
