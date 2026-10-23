@@ -4,9 +4,9 @@
 <dict>
     <key>Label</key><string>com.local.brightness-watch</string>
     <key>ProgramArguments</key>
-    <array><string>/usr/local/bin/brightness-watch.sh</string></array>
+    <array><string>/usr/local/bin/bw</string></array>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
-    <key>ProcessType</key><string>Interactive</string>
+    <key>ProcessType</key><string>Background</string>
 </dict>
 </plist>

@@ -11,12 +11,21 @@ UHOME="$(dscl . -read /Users/"$U" NFSHomeDirectory 2>/dev/null | awk '{print $2}
 [ -n "$UHOME" ] || UHOME="/Users/$U"
 STATE=/Users/Shared/brightness.level
 
+# 如果没有预编译二进制，就地编译（需要 Command Line Tools）
+if [ ! -x "$HERE/ds" ] || [ ! -x "$HERE/bl" ]; then
+  echo "编译工具..."
+  clang -O2 -o "$HERE/bl"  "$HERE/bl.c"  -framework IOKit -framework CoreFoundation
+  clang -O2 -o "$HERE/blp" "$HERE/blp.c" -framework IOKit -framework CoreFoundation
+  clang -O2 -o "$HERE/ds"  "$HERE/ds.c"  -framework CoreGraphics
+  clang -O2 -o "$HERE/bw"  "$HERE/bw.c"  -framework CoreGraphics -framework IOKit -framework CoreFoundation
+fi
+
 mkdir -p /usr/local/bin
 install -m 755 "$HERE/ds"  /usr/local/bin/ds
 install -m 755 "$HERE/blp" /usr/local/bin/blp
 install -m 755 "$HERE/bl"  /usr/local/bin/bl
 install -m 755 "$HERE/brightness-early.sh" /usr/local/bin/brightness-early.sh
-install -m 755 "$HERE/brightness-watch.sh" /usr/local/bin/brightness-watch.sh
+install -m 755 "$HERE/bw" /usr/local/bin/bw
 
 # 清理旧任务
 for p in com.local.brightness-early com.local.brightness-ui com.local.brightness-save com.local.brightness-restore com.local.brightness-watch; do

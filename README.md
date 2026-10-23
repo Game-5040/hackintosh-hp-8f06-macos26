@@ -249,10 +249,12 @@ ioreg -c NVRMBacklightHandler -w0 | grep -c NVRMBacklightHandler     # 1
 `DisplayServices` 需要 GUI 会话（系统级 daemon 里调用会失败），`linear-brightness` 没有这个限制 —— 所以分两段：
 
 ```
-daemon  brightness-early   开机(登录前)  写 linear-brightness   → 屏幕恢复
-agent   brightness-watch   登录 + 每 3 秒 写 DisplayServices    → 滑块同步
-                                         唤醒时重新应用         → 防止熄灭后跳回最亮
-                                         用户改动时保存         → 不覆盖手动调整
+daemon  brightness-early   开机(登录前)   写 linear-brightness        → 屏幕恢复
+agent   brightness-watch   常驻 C 进程    写 DisplayServices           → 滑块同步
+              ├─ IODisplayWrangler 1→4   → 只关显示器后唤醒          → 重新应用
+              ├─ 时钟跳变 >2 秒          → 整机睡眠恢复              → 重新应用
+              ├─ 亮度突变到 100%         → 系统重置                  → 重新应用
+              └─ 用户改动                → 保存新值
 ```
 
 实测：OpenCore 结束后、系统启动早期屏幕就已恢复；登录后约 1 秒滑块同步；显示器休眠唤醒后 3 秒内恢复。
@@ -279,7 +281,7 @@ agent   brightness-watch   登录 + 每 3 秒 写 DisplayServices    → 滑块�
 
 它同时区分了两种情况：**唤醒**时恢复保存值，**用户改动**时保存新值 —— 所以不会和手动调节打架。
 
-看门狗是常驻进程（0.3 秒轮询），所以唤醒后几乎立即恢复；代价是一个 bash 进程加每秒几次 IOKit 调用，可以忽略。
+看门狗是常驻 **C** 进程（0.3 秒轮询），直接调 `DisplayServices` 和 IOKit 属性，**零 fork**，CPU 占用 < 0.1%，唤醒后 0.3 秒内恢复。
 
 ---
 
