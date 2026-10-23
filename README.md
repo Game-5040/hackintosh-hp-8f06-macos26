@@ -574,6 +574,8 @@ bluetoothInternalControllerInfo    <0000000000000000000000000000>
 | `Misc → Entries` 报路径无效 | Entries 只收 UEFI 设备路径 | 改用 `BlessOverride` |
 | 26 上没声音 | AppleHDA 被移除 | SimpleHDA + AppleALC + layout 11 |
 | 麦克风只有噪音 | 麦克风在 AMD ACP 上，不在 codec | 无解，用 USB 麦克风 |
+| OC 菜单突然多出 Recovery / `1401:` 工具条目 | 1401 写配置时重置了 `HideAuxiliary`（且它会新装两个工具，默认非辅助） | `HideAuxiliary = true`，并把工具条目的 `Auxiliary` 设为 `true` |
+| 1401 做 USB 映射后只剩一个 USB-A 能用 | 它用类名（`AppleUSB20XHCIPort`）当端口键，同控制器第二个端口被覆盖 | 手工改成 `HS01/SS01/HS02/SS02` 并补全端口（见第十五节） |
 
 ---
 
