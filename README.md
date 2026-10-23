@@ -576,6 +576,7 @@ bluetoothInternalControllerInfo    <0000000000000000000000000000>
 | 麦克风只有噪音 | 麦克风在 AMD ACP 上，不在 codec | 无解，用 USB 麦克风 |
 | OC 菜单突然多出 Recovery / `1401:` 工具条目 | 1401 写配置时重置了 `HideAuxiliary`（且它会新装两个工具，默认非辅助） | `HideAuxiliary = true`，并把工具条目的 `Auxiliary` 设为 `true` |
 | Wi-Fi 保存过的网络连不上（一直转圈后失败） | 旧的保存状态（密码/PMK/私有 MAC）与当前驱动不符 | 系统设置里**忘记此网络**后重新连接；必要时关闭「私有 Wi-Fi 地址」 |
+| iPhone 个人热点在 Wi-Fi 菜单里点了没反应 | 菜单那条是**连续互通热点**（Instant Hotspot），走 AWDL —— 驱动没有 AWDL 接口 | 用「其他…」手动加入，或 `networksetup -setairportnetwork en1 "iPhone 12 mini" "密码"`；iPhone 需开「最大化兼容性」（2.4GHz + WPA2） |
 | Wi-Fi 扫描很慢 / 部分网络看不到 | `setCOUNTRY_CODE` 被驱动"只记录不执行"，区域码停在 `XZ`，DFS 频道只能被动扫描 | 路由器 5GHz 固定到 36–48 或 149–161（避开 52–144） |
 | `Reset NVRAM` / `Recovery` 从菜单**彻底消失**，按空格也不出现 | 停用了 `ResetNvramEntry.efi` 驱动（这是彻底移除），而不是设 `HideAuxiliary` | 驱动改回 `Enabled=true`，用 `HideAuxiliary=true` 隐藏（按空格可见） |
 | 1401 做 USB 映射后只剩一个 USB-A 能用 | 它用类名（`AppleUSB20XHCIPort`）当端口键，同控制器第二个端口被覆盖 | 手工改成 `HS01/SS01/HS02/SS02` 并补全端口（见第十五节） |
