@@ -22,7 +22,7 @@
 | 功能 | 状态 | 方案 |
 |---|---|---|
 | 显示 / Metal 加速 | ✅ | NullMoth NVIDIA 驱动 2.5.2 |
-| 硬件背光（亮度） | ✅ | `nvrmacpibl=1` |
+| 硬件背光（亮度） | ✅ | `nvrmacpibl=1` + 自建 LaunchDaemon 记住亮度 |
 | Wi-Fi | ✅ | watchthelight `MtkWlan` 0.11.3 + `MtkWlanNative` 0.4.11 |
 | 蓝牙 | ✅ | `MtkBt` **0.2.4** + `BlueToolFixup` 2.7.2 + `LegionBtFix` 0.2.0 |
 | 音频输出 | ✅ | `AppleALC` 1.9.9 + **`SimpleHDA` 1.0.0** + layout 11 |
@@ -231,6 +231,64 @@ ioreg -c NVRMBacklightHandler -w0 | grep -c NVRMBacklightHandler     # 1
 ```
 
 亮度就变成**硬件背光**（不再是软件 gamma 调光）。
+
+## 持久化：重启后记住亮度
+
+驱动**不保存**亮度：`NVRMBacklightHandler` 只负责把当前值写进面板，重启后回到默认（最亮）。macOS 原生靠 SMC 记住亮度，我们这里没有。
+
+### 关键坑：两个亮度参数
+
+`AppleBacklightDisplay` 的 `IODisplayParameters` 里有两个相似参数：
+
+| 参数 | 实际行为 |
+|---|---|
+| `brightness` | 滑块占位值，**写了不生效** |
+| `linear-brightness` | **真正控制面板**，按亮度键改的就是它 |
+
+判断方法：按几下亮度键，看哪个参数跟着变 —— 变的那个才是真的。
+
+```bash
+# 读
+ioreg -rc AppleBacklightDisplay -w0 | tr ',' '\n' | grep -E '"brightness"|linear-brightness'
+```
+
+### 解决方案：两个 LaunchDaemon
+
+用一个 20 行的小工具读写 `linear-brightness`，再配两个守护进程：
+
+```
+bl                    读写 linear-brightness（IOKit IODisplayGet/SetFloatParameter）
+brightness-save.sh    每 60 秒把当前值存到 /var/db/brightness.level
+brightness-restore.sh 开机后写回，并在 20/40 秒后再校正（防止登录后被覆盖）
+```
+
+LaunchDaemon 配置要点：
+
+```xml
+<!-- 开机恢复 -->
+<key>RunAtLoad</key><true/>
+<!-- 定时保存 -->
+<key>StartInterval</key><integer>60</integer>
+```
+
+工具核心代码（`bl.c`）：
+
+```c
+io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault,
+                        IOServiceMatching("AppleBacklightDisplay"));
+IODisplayGetFloatParameter(svc, 0, CFSTR("linear-brightness"), &v);   // 读
+IODisplaySetFloatParameter(svc, 0, CFSTR("linear-brightness"), v);    // 写
+```
+
+编译：
+
+```bash
+clang -O2 -o bl bl.c -framework IOKit -framework CoreFoundation
+```
+
+> 注意：`/usr/local/bin` 在 macOS 上默认不存在，安装脚本要先 `mkdir -p`。
+
+最大误差是"关机前最后一分钟内的调整"，要更准可以把 `StartInterval` 改成 15。
 
 ---
 
@@ -575,6 +633,8 @@ bluetoothInternalControllerInfo    <0000000000000000000000000000>
 | `Misc → Entries` 报路径无效 | Entries 只收 UEFI 设备路径 | 改用 `BlessOverride` |
 | 26 上没声音 | AppleHDA 被移除 | SimpleHDA + AppleALC + layout 11 |
 | 麦克风只有噪音 | 麦克风在 AMD ACP 上，不在 codec | 无解，用 USB 麦克风 |
+| 处理器名称显示 `16-Core Intel Xeon W` 或 `Unknown` | 名字来自 Apple 的 SMBIOS 131 号表（无 AMD 条目） | 用 RestrictEvents：`revpatch=…,cpuname` + `revcpu=1` + NVRAM `revcpuname`（见第十七节） |
+| 重启后亮度不恢复（面板总是最亮） | 驱动不保存亮度；且 `brightness` 参数写了不生效，真正生效的是 `linear-brightness` | 读写 `linear-brightness` + 两个 LaunchDaemon（见第三节「持久化」） |
 | OC 菜单突然多出 Recovery / `1401:` 工具条目 | 1401 写配置时重置了 `HideAuxiliary`（且它会新装两个工具，默认非辅助） | `HideAuxiliary = true`，并把工具条目的 `Auxiliary` 设为 `true` |
 | Wi-Fi 保存过的网络连不上（一直转圈后失败） | 旧的保存状态（密码/PMK/私有 MAC）与当前驱动不符 | 系统设置里**忘记此网络**后重新连接；必要时关闭「私有 Wi-Fi 地址」 |
 | 蓝牙连一会儿自己关闭又打开 | MtkBt 0.2.2 的重置循环 bug（bluetoothd 反复 SIGBUS 崩溃） | 升级 MtkBt 到 **0.2.4**（0.2.3 修复自动关闭、0.2.4 修复重置循环） |
@@ -760,7 +820,67 @@ done
 
 ---
 
-# 十七、后续计划
+# 十七、关于本机显示的名称：CPU
+
+装好之后「系统报告 → 硬件 → 处理器名称」显示的是：
+
+```
+Processor Name: 16-Core Intel Xeon W
+```
+
+而真实 CPU 是 `AMD Ryzen 9 9955HX 16-Core Processor`。
+
+## 原因：Apple 专有的 SMBIOS 131 号表
+
+`PlatformInfo → Generic → ProcessorType` 对应的不是标准 SMBIOS 的处理器字符串，而是 **Apple 专有的 131 号表**。macOS 用「处理器类型 + 核心数」查这张表生成名字：
+
+```
+<0F01> 16 cores → "16-Core Intel Xeon W"
+```
+
+苹果从没用过 AMD CPU，所以表里**没有 AMD 名称**。而且：
+
+- 设为 `0`（自动）时，OpenCore 对 AMD（family F）推断出的就是 `0x0F01`
+- 设为表里没有的值（如 `65535`）→ 显示 `Unknown`
+- 改 `UpdateSMBIOS = false` 风险太高（会丢机型身份）
+
+所以**靠 SMBIOS 这条路走不通**。
+
+## 解法：RestrictEvents 的 CPU 名称补丁
+
+[RestrictEvents](https://github.com/acidanthera/RestrictEvents)（本机已装）支持运行时替换 CPU 品牌字符串：
+
+| 参数 | 作用 |
+|---|---|
+| `revpatch=…,cpuname` | 允许自定义 CPU 名称 |
+| `revcpu=1` | 启用品牌字符串补丁 |
+| `revcpuname=<名称>` | 自定义名称（最多 48 字符） |
+
+### 注意：名称带空格不能写进 boot-args
+
+boot-args 用空格分隔，带空格的值会被截断。所以名称要走 **NVRAM 变量**：
+
+```
+NVRAM → Add → 4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:revcpuname
+                 = "AMD Ryzen 9 9955HX 16-Core Processor"
+```
+
+最终配置：
+
+```
+boot-args:  ... revpatch=sbvmm,cpuname revcpu=1
+NVRAM:      4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:revcpuname
+```
+
+### 生效条件
+
+OpenCore 的 `NVRAM → Add` **只写不存在的键**。如果 `boot-args` 已在 NVRAM 里，新的值不会写入 —— 要么把它加进 `NVRAM → Delete` 先删再写，要么手动清一次 NVRAM（本机用的是后者：开机时按空格 → Reset NVRAM）。
+
+清 NVRAM 不影响 OpenCore 自己注册的启动项（`LauncherOption`），也不影响固件里的 Windows 启动项。
+
+---
+
+# 十八、后续计划
 
 - [ ] 内置麦克风：需要 macOS 版 ACP6x 驱动（见第十节）
 - [ ] AirDrop / AWDL：驱动无 `awdl0`；移植 Owly 的可行性、工作量与验证方法见 [docs/airdrop-feasibility.md](docs/airdrop-feasibility.md)
