@@ -5,7 +5,6 @@
     <key>Label</key><string>com.local.brightness-save</string>
     <key>ProgramArguments</key>
     <array><string>/usr/local/bin/brightness-save.sh</string></array>
-    <key>RunAtLoad</key><true/>
     <key>StartInterval</key><integer>60</integer>
     <key>ProcessType</key><string>Background</string>
 </dict>

@@ -234,61 +234,35 @@ ioreg -c NVRMBacklightHandler -w0 | grep -c NVRMBacklightHandler     # 1
 
 ## 持久化：重启后记住亮度
 
-驱动**不保存**亮度：`NVRMBacklightHandler` 只负责把当前值写进面板，重启后回到默认（最亮）。macOS 原生靠 SMC 记住亮度，我们这里没有。
+驱动**不保存**亮度：`publishBacklight()` 里固定用 NVKMS 的初始值（100%），重启后回到最亮。macOS 原生靠 SMC 记住亮度，我们这里没有。
 
-### 关键坑：两个亮度参数
+### 关键：三个亮度接口，行为不同
 
-`AppleBacklightDisplay` 的 `IODisplayParameters` 里有两个相似参数：
-
-| 参数 | 实际行为 |
+| 接口 | 现象 |
 |---|---|
-| `brightness` | 滑块占位值，**写了不生效** |
-| `linear-brightness` | **真正控制面板**，按亮度键改的就是它 |
+| `IODisplayParameters.brightness` | 写了不生效（滑块占位值） |
+| `IODisplayParameters.linear-brightness` | **真正控制面板**，但滑块不动 |
+| `DisplayServicesSetBrightness`（私有框架） | **面板 + 滑块一起动**（控制中心走的就是它） |
 
-判断方法：按几下亮度键，看哪个参数跟着变 —— 变的那个才是真的。
+判断哪个是真的：按几下亮度键，看哪个参数跟着变。
 
-```bash
-# 读
-ioreg -rc AppleBacklightDisplay -w0 | tr ',' '\n' | grep -E '"brightness"|linear-brightness'
-```
-
-### 解决方案：两个 LaunchDaemon
-
-用一个 20 行的小工具读写 `linear-brightness`，再配两个守护进程：
+`DisplayServices` 需要 GUI 会话（系统级 daemon 里调用会失败），`linear-brightness` 没有这个限制 —— 所以恢复要分两段：
 
 ```
-bl                    读写 linear-brightness（IOKit IODisplayGet/SetFloatParameter）
-brightness-save.sh    每 60 秒把当前值存到 /var/db/brightness.level
-brightness-restore.sh 开机后写回，并在 20/40 秒后再校正（防止登录后被覆盖）
+阶段 1（登录前，系统级 daemon）  → 写 linear-brightness   → 屏幕立刻恢复
+阶段 2（进入系统后，用户 agent） → 写 DisplayServices    → 滑块同步、按键从该值继续
 ```
 
-LaunchDaemon 配置要点：
+测速结果：开机约 5 秒后屏幕恢复（这 5 秒是驱动加载时间，不是脚本慢），登录后约 1 秒滑块同步。
 
-```xml
-<!-- 开机恢复 -->
-<key>RunAtLoad</key><true/>
-<!-- 定时保存 -->
-<key>StartInterval</key><integer>60</integer>
-```
+完整实现见 [`tools/brightness/`](tools/brightness/README.md)：`bl.c`（IOKit）、`ds.c`（DisplayServices）、两个脚本、一个 daemon + 两个 agent、`install.sh`。
 
-工具核心代码（`bl.c`）：
+### 落地的四个坑
 
-```c
-io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault,
-                        IOServiceMatching("AppleBacklightDisplay"));
-IODisplayGetFloatParameter(svc, 0, CFSTR("linear-brightness"), &v);   // 读
-IODisplaySetFloatParameter(svc, 0, CFSTR("linear-brightness"), v);    // 写
-```
-
-编译：
-
-```bash
-clang -O2 -o bl bl.c -framework IOKit -framework CoreFoundation
-```
-
-> 注意：`/usr/local/bin` 在 macOS 上默认不存在，安装脚本要先 `mkdir -p`。
-
-最大误差是"关机前最后一分钟内的调整"，要更准可以把 `StartInterval` 改成 15。
+1. **状态文件不能被清空** —— 安装脚本里的 `: > file` 会清零，脚本读到空值直接退出
+2. **`save` 不能 `RunAtLoad`** —— 登录瞬间它会抢在 `ui` 之前把状态写成当前（最亮）值
+3. **`/usr/local/bin` 默认不存在** —— 安装脚本要 `mkdir -p`
+4. **首版用了错的参数** —— `brightness` 是占位值，写进去读回来都对，但屏幕不动
 
 ---
 
