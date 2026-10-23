@@ -253,7 +253,7 @@ ioreg -c NVRMBacklightHandler -w0 | grep -c NVRMBacklightHandler     # 1
 阶段 2（进入系统后，用户 agent） → 写 DisplayServices    → 滑块同步、按键从该值继续
 ```
 
-测速结果：开机约 5 秒后屏幕恢复（这 5 秒是驱动加载时间，不是脚本慢），登录后约 1 秒滑块同步。
+实测：OpenCore 启动流程结束后、系统启动早期屏幕就已恢复（0.1 秒轮询，驱动注册完立即写入）；登录后约 1 秒滑块同步。
 
 完整实现见 [`tools/brightness/`](tools/brightness/README.md)：`bl.c`（IOKit）、`ds.c`（DisplayServices）、两个脚本、一个 daemon + 两个 agent、`install.sh`。
 

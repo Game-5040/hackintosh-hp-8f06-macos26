@@ -66,5 +66,5 @@ sudo /usr/local/bin/brightness-early.sh
 - **状态文件必须非空**：安装脚本曾用 `: > file` 清空它，导致脚本读到空值直接退出
 - **`save` 不能 RunAtLoad**：登录瞬间它会抢在 `ui` 之前把状态写成当前（最亮）值
 - **`/usr/local/bin` 默认不存在**：安装脚本要 `mkdir -p`
-- **恢复有 ~5 秒延迟**：驱动在 `publishBacklight()` 里固定用 NVKMS 的初始值，面板要等驱动注册后才可写
+- **恢复时机取决于驱动注册**：`publishBacklight()` 里固定用 NVKMS 的初始值，面板要等驱动注册后才可写；脚本用 0.1 秒轮询，注册完立即写入
 - **保存间隔 60 秒**：关机前最后一分钟的调整可能丢失，可改 `StartInterval`
