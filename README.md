@@ -27,7 +27,8 @@
 | 蓝牙 | ✅ | `MtkBt` 0.2.2 + `BlueToolFixup` 2.7.2 + `LegionBtFix` 0.2.0 |
 | 音频输出 | ✅ | `AppleALC` 1.9.9 + **`SimpleHDA` 1.0.0** + layout 11 |
 | 电池 / 充电状态 | ✅ | `SSDT-AC` + `_PSR`/`_Q20` 重命名（26 上充电实时更新；"电源适配器已连接"指示不显示） |
-| Windows 双系统引导 | ✅ | `bootmgfw` 替换 + `BlessOverride` |
+| Windows 双系统引导 | ✅ | `LauncherOption = Full` + 自定义 `Entries` 图标 |
+| USB 端口映射 | ✅ | `USBToolBox` + 手工修正的 `UTBMap`（9 个端口，内部 255） |
 | 内置麦克风 | ❌ | 挂在 AMD ACP6x（非 HDA），macOS 无驱动 |
 | 睡眠 | ❌ | 固件只声明 Modern Standby，无 S3 |
 
@@ -595,9 +596,108 @@ bluetoothInternalControllerInfo    <0000000000000000000000000000>
 
 ---
 
-# 十五、后续计划
+# 十五、USB 端口映射
 
-- [ ] **USB 映射**（USBMap / USBToolBox）：目前用的是 `USBToolBox` + `UTBDefault` 通用映射，端口类型（内建/USB2/USB3）尚未按本机定制
+## 为什么需要
+
+macOS 每个 XHCI 控制器最多识别 **15 个端口**，而且**内部设备的端口必须标记为 `255`**（Internal），否则系统会把它当成可移除设备，影响蓝牙、摄像头和睡眠。
+
+本机三个控制器共 9 个端口，端口数不是问题，主要收益是内部端口标记正确 + 类型标注准确。
+
+## 工具：1401 内置的「USB ports」
+
+`1401.app` → **USB ports** 标签页：
+
+1. 点 `Start` 开始监听
+2. 逐个物理口插入 USB3 设备（USB-C 正反各一次），端口变绿表示已记录
+3. 在列表里给每个口选类型，点 `Write the map`
+
+它底层写的是 `USBToolBox.kext` + `UTBMap.kext`（`com.dhinakg.USBToolBox.kext`）。
+
+> **不要用 USBMap（CorpNewt）**：macOS 26 上有已知问题 ——
+> [USB 3.0 只跑 2.0 速度](https://github.com/corpnewt/USBMap/issues/69)、[端口定义未适配 26](https://github.com/corpnewt/USBMap/issues/66)。
+
+## 1401 的一个 bug（必须手工修正）
+
+1401 生成的映射用**类名**当端口键：
+
+```
+AppleUSB20XHCIPort  →  port 2
+AppleUSB30XHCIPort  →  port 4
+```
+
+同一个控制器上的**第二个 USB2 端口会覆盖第一个**，所以它永远只能记录「1 个 USB2 + 1 个 USB3」，机器上另外的物理口全部失效（表现为只有一个 USB-A 能用）。
+
+**修正方法**：把 `UTBMap.kext/Contents/Info.plist` 里的 ports 键改成唯一名字（`HS01`/`SS01`/`HS02`/`SS02`），并补全缺失的端口。
+
+## 本机端口表（实测）
+
+用插拔设备读 `locationID` 得到：
+
+| 物理口 | 控制器 | USB3 端口 | USB2 端口 | 类型 |
+|---|---|---|---|---|
+| USB-C | XHC0（`15B6`） | 3 | 1 | `9` USB-C(带回转) |
+| USB-A ② | XHC0（`15B6`） | 4 | 2 | `3` / `0` |
+| USB-A ① | XHC1（`15B7`） | 3 | 1 | `3` / `0` |
+| USB-A ③ | XHC1（`15B7`） | 4 | 2 | `3` / `0` |
+| 内部 Hub（蓝牙/摄像头/键盘） | XHC2（`15B8`） | — | 1 | `255` Internal |
+
+端口号与 `locationID` 的关系：
+
+```
+controller = locationID & 0xFF000000
+port       = (locationID >> 20) & 0xF
+```
+
+## 类型码
+
+| 值 | 含义 |
+|---|---|
+| `0` | USB 2.0 Type-A |
+| `3` | USB 3 Type-A |
+| `8` | USB-C（仅 USB2） |
+| `9` | USB-C（带 switch，正反同端口） |
+| `10` | USB-C（无 switch，正反不同端口） |
+| `255` | Internal |
+
+## 配套 kext
+
+```
+USBToolBox.kext   Enabled = true    ← 注入器，必须保留
+UTBMap.kext       Enabled = true    ← 自定义映射
+UTBDefault.kext   Enabled = false   ← 通用映射，停用
+```
+
+## 验证
+
+仓库外的辅助脚本 `usb-test.py`（实时监控插拔）：
+
+```bash
+python3 usb-test.py          # 实时监控，插拔时报告控制器/端口/速度/映射
+python3 usb-test.py --list   # 列出当前设备
+python3 usb-test.py --map    # 打印映射表
+```
+
+输出示例：
+
+```
+[12:38:03] 插入  iPhone  XHC0  端口 1  HighSpeed(USB2 480M)  → 映射 USB-C(带回转) (HS01)
+```
+
+## 验收标准
+
+| 检查 | 期望 |
+|---|---|
+| 3 个 USB-A 口 | 插 USB3 设备显示 `SuperSpeed(USB3 5G)` |
+| USB-C 正反 | 都能识别，都映射到 `XHC0 端口 3/1` |
+| 每个口的 USB2 通道 | 插 USB2 设备能识别 |
+| 蓝牙 | `Chipset: THIRD_PARTY_DONGLE`，重启后正常 |
+| 睡眠唤醒 | USB 设备与蓝牙在唤醒后仍可用 |
+
+---
+
+# 十六、后续计划
+
 - [ ] 内置麦克风：需要 macOS 版 ACP6x 驱动（见第十节）
 
 ---
