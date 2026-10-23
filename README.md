@@ -692,7 +692,9 @@ python3 usb-test.py --map    # 打印映射表
 | USB-C 正反 | 都能识别，都映射到 `XHC0 端口 3/1` |
 | 每个口的 USB2 通道 | 插 USB2 设备能识别 |
 | 蓝牙 | `Chipset: THIRD_PARTY_DONGLE`，重启后正常 |
-| 睡眠唤醒 | USB 设备与蓝牙在唤醒后仍可用 |
+| 重启后 | 映射仍生效（`UTBMap.kext` 正常加载），蓝牙自动就绪 |
+
+> 本机没有 S3（固件只支持 Modern Standby），因此不存在"睡眠唤醒"这一项测试。
 
 ---
 
