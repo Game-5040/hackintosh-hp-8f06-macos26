@@ -246,23 +246,37 @@ ioreg -c NVRMBacklightHandler -w0 | grep -c NVRMBacklightHandler     # 1
 
 判断哪个是真的：按几下亮度键，看哪个参数跟着变。
 
-`DisplayServices` 需要 GUI 会话（系统级 daemon 里调用会失败），`linear-brightness` 没有这个限制 —— 所以恢复要分两段：
+`DisplayServices` 需要 GUI 会话（系统级 daemon 里调用会失败），`linear-brightness` 没有这个限制 —— 所以分两段：
 
 ```
-阶段 1（登录前，系统级 daemon）  → 写 linear-brightness   → 屏幕立刻恢复
-阶段 2（进入系统后，用户 agent） → 写 DisplayServices    → 滑块同步、按键从该值继续
+daemon  brightness-early   开机(登录前)  写 linear-brightness   → 屏幕恢复
+agent   brightness-watch   登录 + 每 3 秒 写 DisplayServices    → 滑块同步
+                                         唤醒时重新应用         → 防止熄灭后跳回最亮
+                                         用户改动时保存         → 不覆盖手动调整
 ```
 
-实测：OpenCore 启动流程结束后、系统启动早期屏幕就已恢复（0.1 秒轮询，驱动注册完立即写入）；登录后约 1 秒滑块同步。
+实测：OpenCore 结束后、系统启动早期屏幕就已恢复；登录后约 1 秒滑块同步；显示器休眠唤醒后 3 秒内恢复。
 
-完整实现见 [`tools/brightness/`](tools/brightness/README.md)：`bl.c`（IOKit）、`ds.c`（DisplayServices）、两个脚本、一个 daemon + 两个 agent、`install.sh`。
+完整实现见 [`tools/brightness/`](tools/brightness/README.md)。
 
-### 落地的四个坑
+### 落地的五个坑
 
 1. **状态文件不能被清空** —— 安装脚本里的 `: > file` 会清零，脚本读到空值直接退出
-2. **`save` 不能 `RunAtLoad`** —— 登录瞬间它会抢在 `ui` 之前把状态写成当前（最亮）值
-3. **`/usr/local/bin` 默认不存在** —— 安装脚本要 `mkdir -p`
-4. **首版用了错的参数** —— `brightness` 是占位值，写进去读回来都对，但屏幕不动
+2. **状态文件属主必须是登录用户** —— 属主为 root 时 agent 写不进去，看门狗永远读不到休眠状态
+3. **`save` 不能 `RunAtLoad`** —— 登录瞬间它会抢在同步之前把状态写成当前（最亮）值
+4. **`/usr/local/bin` 默认不存在** —— 安装脚本要 `mkdir -p`
+5. **首版用了错的参数** —— `brightness` 是占位值，写进去读回来都对，但屏幕不动
+
+### 唤醒后跳回最亮怎么办
+
+看门狗用 `IODisplayWrangler` 的 `CurrentPowerState` 判断显示器状态：
+
+```
+休眠: 4 → 1
+唤醒: 1 → 4   → 重新应用保存的亮度（linear + DisplayServices 各写一次）
+```
+
+它同时区分了两种情况：**唤醒**时恢复保存值，**用户改动**时保存新值 —— 所以不会和手动调节打架。
 
 ---
 

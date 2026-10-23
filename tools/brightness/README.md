@@ -3,8 +3,10 @@
 macOS 上第三方显卡驱动**不保存**背光亮度，重启后回到最亮。这套工具分两段解决：
 
 ```
-阶段 1（登录前，系统级 daemon）  → 写 linear-brightness（IOKit）   → 屏幕立刻恢复
-阶段 2（进入系统后，用户 agent） → 写 DisplayServices（私有框架） → 滑块同步、按键从该值继续
+daemon  brightness-early   开机(登录前)  写 linear-brightness（IOKit）      → 屏幕立刻恢复
+agent   brightness-watch   登录 + 每 3 秒 写 DisplayServices（私有框架）    → 滑块同步
+                                         显示器从休眠恢复时重新应用         → 防止唤醒后跳回最亮
+                                         用户改动时保存新值                → 不覆盖手动调整
 ```
 
 ## 为什么需要两个接口
@@ -26,9 +28,8 @@ macOS 上第三方显卡驱动**不保存**背光亮度，重启后回到最亮�
 | `bl.c` / `blp.c` | IOKit 读写 `linear-brightness`（`blp` 可指定参数名） |
 | `ds.c` | DisplayServices 读写亮度：`ds` 读，`ds 0.4` 写 |
 | `brightness-early.sh` | 阶段 1：开机等面板出现，写入保存值 |
-| `brightness-ui.sh` | 阶段 2：登录后把滑块同步到该值 |
-| `brightness-save.sh` | 每 60 秒保存当前值 |
-| `com.local.brightness-*.plist` | 一个 daemon + 两个 agent |
+| `brightness-watch.sh` | 看门狗：登录时同步滑块、唤醒时恢复、用户改动时保存 |
+| `com.local.brightness-*.plist` | 一个 daemon + 一个 agent |
 | `install.sh` | 安装（需 sudo） |
 
 ## 安装
@@ -67,4 +68,5 @@ sudo /usr/local/bin/brightness-early.sh
 - **`save` 不能 RunAtLoad**：登录瞬间它会抢在 `ui` 之前把状态写成当前（最亮）值
 - **`/usr/local/bin` 默认不存在**：安装脚本要 `mkdir -p`
 - **恢复时机取决于驱动注册**：`publishBacklight()` 里固定用 NVKMS 的初始值，面板要等驱动注册后才可写；脚本用 0.1 秒轮询，注册完立即写入
-- **保存间隔 60 秒**：关机前最后一分钟的调整可能丢失，可改 `StartInterval`
+- **状态文件属主**：`/Users/Shared/brightness.*` 必须是登录用户所有，否则 agent 写不进去（root 属主会让看门狗永远读不到休眠状态）
+- **唤醒检测**：`IODisplayWrangler` 的 `CurrentPowerState` 在显示器休眠时从 4 变成 1，恢复时回到 4
