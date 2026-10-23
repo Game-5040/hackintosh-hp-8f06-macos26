@@ -28,7 +28,7 @@ agent   brightness-watch   登录 + 每 3 秒 写 DisplayServices（私有框架
 | `bl.c` / `blp.c` | IOKit 读写 `linear-brightness`（`blp` 可指定参数名） |
 | `ds.c` | DisplayServices 读写亮度：`ds` 读，`ds 0.4` 写 |
 | `brightness-early.sh` | 阶段 1：开机等面板出现，写入保存值 |
-| `brightness-watch.sh` | 看门狗：登录时同步滑块、唤醒时恢复、用户改动时保存 |
+| `brightness-watch.sh` | 常驻看门狗（0.3 秒轮询）：启动/唤醒/时间跳变时恢复，用户改动时保存 |
 | `com.local.brightness-*.plist` | 一个 daemon + 一个 agent |
 | `install.sh` | 安装（需 sudo） |
 
@@ -70,3 +70,4 @@ sudo /usr/local/bin/brightness-early.sh
 - **恢复时机取决于驱动注册**：`publishBacklight()` 里固定用 NVKMS 的初始值，面板要等驱动注册后才可写；脚本用 0.1 秒轮询，注册完立即写入
 - **状态文件属主**：`/Users/Shared/brightness.*` 必须是登录用户所有，否则 agent 写不进去（root 属主会让看门狗永远读不到休眠状态）
 - **唤醒检测**：`IODisplayWrangler` 的 `CurrentPowerState` 在显示器休眠时从 4 变成 1，恢复时回到 4
+- **整机睡眠**：进程会被挂起甚至杀掉，单靠状态变化检测不到；脚本额外用"启动即应用"和"时钟跳变 >2 秒"兜底
