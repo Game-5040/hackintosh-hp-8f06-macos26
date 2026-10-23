@@ -576,6 +576,7 @@ bluetoothInternalControllerInfo    <0000000000000000000000000000>
 | 麦克风只有噪音 | 麦克风在 AMD ACP 上，不在 codec | 无解，用 USB 麦克风 |
 | OC 菜单突然多出 Recovery / `1401:` 工具条目 | 1401 写配置时重置了 `HideAuxiliary`（且它会新装两个工具，默认非辅助） | `HideAuxiliary = true`，并把工具条目的 `Auxiliary` 设为 `true` |
 | Wi-Fi 保存过的网络连不上（一直转圈后失败） | 旧的保存状态（密码/PMK/私有 MAC）与当前驱动不符 | 系统设置里**忘记此网络**后重新连接；必要时关闭「私有 Wi-Fi 地址」 |
+| 蓝牙连一会儿自己关闭又打开 | MtkBt 0.2.2 的重置循环 bug（bluetoothd 反复 SIGBUS 崩溃） | 升级 MtkBt 到 **0.2.4**（0.2.3 修复自动关闭、0.2.4 修复重置循环） |
 | iPhone 个人热点在 Wi-Fi 菜单里点了没反应 | 菜单那条是**连续互通热点**（Instant Hotspot），走 AWDL —— 驱动没有 AWDL 接口 | 用「其他…」手动加入，或 `networksetup -setairportnetwork en1 "iPhone 12 mini" "密码"`；iPhone 需开「最大化兼容性」（2.4GHz + WPA2） |
 | Wi-Fi 扫描很慢 / 部分网络看不到 | `setCOUNTRY_CODE` 被驱动"只记录不执行"，区域码停在 `XZ`，DFS 频道只能被动扫描 | 路由器 5GHz 固定到 36–48 或 149–161（避开 52–144） |
 | `Reset NVRAM` / `Recovery` 从菜单**彻底消失**，按空格也不出现 | 停用了 `ResetNvramEntry.efi` 驱动（这是彻底移除），而不是设 `HideAuxiliary` | 驱动改回 `Enabled=true`，用 `HideAuxiliary=true` 隐藏（按空格可见） |
@@ -704,7 +705,61 @@ python3 usb-test.py --map    # 打印映射表
 
 ---
 
-# 十六、后续计划
+# 十六、驱动版本管理
+
+## 当前版本
+
+| 驱动 | 版本 | 来源 |
+|---|---|---|
+| NullMoth NVIDIA（NVRM/NVFB/NVAccel/NVRMAGDC） | 2.5.2 | `nullmoth/nvidia-macos-driver` |
+| MtkWlan（核心） | 0.11.3 | `watchthelight-labs/mt7925-hackintosh-wifi` |
+| MtkWlanNative（原生前端） | 0.4.11 | `watchthelight-labs/mt7925-hackintosh-wifi-native` |
+| **MtkBt** | **0.2.4** | `watchthelight-labs/mt7925-hackintosh-bluetooth` |
+| BlueToolFixup | 2.7.2 | Acidanthera |
+| LegionBtFix | 0.2.0 | watchthelight-labs |
+
+## 为什么要盯着版本
+
+本机的蓝牙曾经"连一会儿自己关闭又打开"，崩溃报告显示 `bluetoothd` 反复 **SIGBUS**（`TxLoop` 线程），根因是 **MtkBt 0.2.2 的重置循环 bug**。而 0.2.3 / 0.2.4 的更新说明正是：
+
+- 0.2.3 —「Fixes Bluetooth turning itself off after a restart」
+- 0.2.4 —「Stops a reset loop that could freeze USB input」
+
+**驱动的更新说明往往就是正在发生的 bug**，症状对上了就该升级。
+
+## 检查更新（`github.com` 打不开时用 API）
+
+```bash
+for repo in \
+  watchthelight-labs/mt7925-hackintosh-wifi \
+  watchthelight-labs/mt7925-hackintosh-wifi-native \
+  watchthelight-labs/mt7925-hackintosh-bluetooth \
+  nullmoth/nvidia-macos-driver ; do
+  echo "== $repo"
+  curl -s "https://api.github.com/repos/$repo/releases/latest" \
+    | grep -E '"tag_name"|"published_at"' | head -2
+done
+```
+
+## 更新方法（kext 类）
+
+1. 下载新版本，解压出 `*.kext`
+2. 备份旧版：`mv EFI/OC/Kexts/X.kext EFI/OC/Kexts/X.kext.bak-<旧版本>`
+3. 复制新版到 `EFI/OC/Kexts/`
+4. **`config.plist` 不用改** —— 只要 `BundlePath` 和 `ExecutablePath` 与之前一致
+5. 重启验证
+
+## 已知的"等上游"问题
+
+| 问题 | 跟踪 |
+|---|---|
+| 应用图标渲染异常 | `nullmoth/nvidia-macos-driver` issue #89（`icons-test1` 测试插件未进正式版） |
+| Wi-Fi 区域码停在 `XZ`，DFS 扫描慢 | 驱动 `setCOUNTRY_CODE` 只记录不执行，无 boot-arg 可设 |
+| WPA3-SAE / 企业级 802.1X / AWDL | 驱动功能缺口 |
+
+---
+
+# 十七、后续计划
 
 - [ ] 内置麦克风：需要 macOS 版 ACP6x 驱动（见第十节）
 
