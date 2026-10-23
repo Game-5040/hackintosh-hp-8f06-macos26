@@ -251,8 +251,8 @@ ioreg -c NVRMBacklightHandler -w0 | grep -c NVRMBacklightHandler     # 1
 ```
 daemon  brightness-early   开机(登录前)   写 linear-brightness        → 屏幕恢复
 agent   brightness-watch   常驻 C 进程    写 DisplayServices           → 滑块同步
-              ├─ IODisplayWrangler 1→4   → 只关显示器后唤醒          → 重新应用
-              ├─ 时钟跳变 >2 秒          → 整机睡眠恢复              → 重新应用
+              ├─ IODisplayWrangler 1→4   → 只关显示器后唤醒          → 重新应用（持续 5 秒）
+              ├─ 时钟跳变 >2 秒          → 整机睡眠恢复              → 重新应用（持续 5 秒）
               ├─ 亮度突变到 100%         → 系统重置                  → 重新应用
               └─ 用户改动                → 保存新值
 ```
@@ -280,6 +280,8 @@ agent   brightness-watch   常驻 C 进程    写 DisplayServices           → 
 ```
 
 它同时区分了两种情况：**唤醒**时恢复保存值，**用户改动**时保存新值 —— 所以不会和手动调节打架。
+
+唤醒后不是只写一次：驱动可能在几百毫秒后**再次**把面板重置成最亮（表现为"滑块对、面板最亮"），所以检测到唤醒后会**持续 5 秒、每 0.3 秒重写一次**，把后置的重置压住。
 
 看门狗是常驻 **C** 进程（0.3 秒轮询），直接调 `DisplayServices` 和 IOKit 属性，**零 fork**，CPU 占用 < 0.1%，唤醒后 0.3 秒内恢复。
 

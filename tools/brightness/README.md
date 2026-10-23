@@ -74,3 +74,4 @@ sudo /usr/local/bin/brightness-early.sh
 - **唤醒检测**：`IODisplayWrangler` 的 `CurrentPowerState` 在显示器休眠时从 4 变成 1，恢复时回到 4
 - **整机睡眠**：进程会被挂起甚至杀掉，单靠状态变化检测不到；用"时钟跳变 >2 秒"兜底
 - **只关显示器**：亮度参数不变但面板被重置，所以还要读 `IODisplayWrangler` 的 `CurrentPowerState`（4=亮，1=灭）
+- **唤醒后驱动会二次重置**：单次写入可能被覆盖（表现为"滑块对、面板最亮"），所以唤醒后持续 5 秒重复写入

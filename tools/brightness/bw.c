@@ -85,6 +85,7 @@ int main(void) {
     float prev = saved;
     int prev_state = display_power_state();
     double last = wall();
+    double burst_until = 0;   // 唤醒后持续重写的截止时间
 
     for (;;) {
         struct timespec ts = { 0, TICK_MS * 1000000L };
@@ -93,6 +94,7 @@ int main(void) {
         double t = wall();
         if (t - last > GAP_S) {         // 整机睡眠后恢复
             set_brightness(saved);
+            burst_until = t + 5.0;      // 驱动可能稍后再重置一次，持续覆盖
             last = t; prev = saved;
             continue;
         }
@@ -102,10 +104,18 @@ int main(void) {
         int st = display_power_state();
         if (st == 4 && prev_state != 4 && prev_state >= 0) {
             set_brightness(saved);
+            burst_until = t + 5.0;
             prev_state = st; prev = saved;
             continue;
         }
         prev_state = st;
+
+        // 唤醒后的 5 秒内持续覆盖驱动的后置重置
+        if (t < burst_until) {
+            set_brightness(saved);
+            prev = saved;
+            continue;
+        }
 
         if (!get_brightness(&v)) continue;
 
