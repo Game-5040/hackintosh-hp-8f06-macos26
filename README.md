@@ -24,13 +24,14 @@
 | 显示 / Metal 加速 | ✅ | NullMoth NVIDIA 驱动 2.5.2 |
 | 硬件背光（亮度） | ✅ | `nvrmacpibl=1` |
 | Wi-Fi | ✅ | watchthelight `MtkWlan` 0.11.3 + `MtkWlanNative` 0.4.11 |
-| 蓝牙 | ✅ | `MtkBt` 0.2.2 + `BlueToolFixup` 2.7.2 + `LegionBtFix` 0.2.0 |
+| 蓝牙 | ✅ | `MtkBt` **0.2.4** + `BlueToolFixup` 2.7.2 + `LegionBtFix` 0.2.0 |
 | 音频输出 | ✅ | `AppleALC` 1.9.9 + **`SimpleHDA` 1.0.0** + layout 11 |
 | 电池 / 充电状态 | ✅ | `SSDT-AC` + `_PSR`/`_Q20` 重命名（26 上充电实时更新；"电源适配器已连接"指示不显示） |
 | Windows 双系统引导 | ✅ | `LauncherOption = Full` + 自定义 `Entries` 图标 |
 | USB 端口映射 | ✅ | `USBToolBox` + 手工修正的 `UTBMap`（9 个端口，内部 255） |
 | 内置麦克风 | ❌ | 挂在 AMD ACP6x（非 HDA），macOS 无驱动 |
 | 睡眠 | ❌ | 固件只声明 Modern Standby，无 S3 |
+| AirDrop / 连续互通 | ❌ | 驱动无 `awdl0`（AWDL 未实现）；可行性分析见 [docs/airdrop-feasibility.md](docs/airdrop-feasibility.md) |
 
 ---
 
@@ -762,6 +763,7 @@ done
 # 十七、后续计划
 
 - [ ] 内置麦克风：需要 macOS 版 ACP6x 驱动（见第十节）
+- [ ] AirDrop / AWDL：驱动无 `awdl0`；移植 Owly 的可行性、工作量与验证方法见 [docs/airdrop-feasibility.md](docs/airdrop-feasibility.md)
 
 ---
 
