@@ -1,7 +1,8 @@
 # HP 笔记本（Ryzen 9 9955HX + RTX 5070）黑苹果 macOS 26 Tahoe 实战记录
 
-> 在 HP 8F06 上**全新安装** macOS 26.7.1 (Tahoe) 并与 15.8.1 (Sequoia) 双系统共存，让显示、亮度、Wi-Fi、蓝牙、音频输出、电池全部可用。
-> 除内置麦克风外，整机功能完整。
+> 在 HP 8F06 上**全新安装** macOS 26，让显示、亮度、Wi-Fi、蓝牙、音频输出、电池、USB、双系统引导全部可用。
+> 当前系统：**macOS 26.7.2（25G332）**，驱动 NVIDIA 2.6.3 + MtkWlan 0.12.1 / Native 0.4.14 + MtkBt 0.2.4 / LegionBtFix 0.3.0。
+> 已知缺口：内置麦克风、睡眠（无 S3）、AirDrop（无 AWDL）、关机断电（待查）、部分图标残影。
 
 ## 机器
 
@@ -21,16 +22,19 @@
 
 | 功能 | 状态 | 方案 |
 |---|---|---|
-| 显示 / Metal 加速 | ✅ | NullMoth NVIDIA 驱动 2.5.2 |
-| 硬件背光（亮度） | ✅ | `nvrmacpibl=1` + 自建 LaunchDaemon 记住亮度 |
-| Wi-Fi | ✅ | watchthelight `MtkWlan` 0.11.3 + `MtkWlanNative` 0.4.11 |
-| 蓝牙 | ✅ | `MtkBt` **0.2.4** + `BlueToolFixup` 2.7.2 + `LegionBtFix` 0.2.0 |
+| 显示 / Metal 加速 | ✅ | NullMoth NVIDIA 驱动 **2.6.3** |
+| 硬件背光（亮度） | ✅ | `nvrmacpibl=1` + 自建 LaunchDaemon 记住亮度（2.6.3 的 PR #312 在本机未生效） |
+| HiDPI 缩放 | ⚠️ | `nvfbhidpi=1` + 2.6.3 的「看起来像」尺寸；非整倍 HiDPI 未暴露，只能整倍 2×（1280×800） |
+| Wi-Fi | ✅ | watchthelight `MtkWlan` 0.12.1 + `MtkWlanNative` **0.4.14**（26.7.2 需要 ≥0.4.14） |
+| 蓝牙 | ✅ | `MtkBt` 0.2.4 + `BlueToolFixup` 2.7.2 + `LegionBtFix` **0.3.0**（0.2.0 只支持 26.7.1） |
 | 音频输出 | ✅ | `AppleALC` 1.9.9 + **`SimpleHDA` 1.0.0** + layout 11 |
 | 电池 / 充电状态 | ✅ | `SSDT-AC` + `_PSR`/`_Q20` 重命名（26 上充电实时更新；"电源适配器已连接"指示不显示） |
 | Windows 双系统引导 | ✅ | `LauncherOption = Full` + 自定义 `Entries` 图标 |
 | USB 端口映射 | ✅ | `USBToolBox` + 手工修正的 `UTBMap`（9 个端口，内部 255） |
 | 内置麦克风 | ❌ | 挂在 AMD ACP6x（非 HDA），macOS 无驱动 |
 | 睡眠 | ❌ | 固件只声明 Modern Standby，无 S3 |
+| 关机断电 | ⚠️ | 关机变重启；已排除 WOL/USB 唤醒/PMEE/RTC，定位到**拔掉 USB 设备即可正常关机** |
+| 图标渲染残影 | ❌ | 默认（玻璃）图标样式下部分系统图标串图层；2.6.3 仍存在（不是 #363） |
 | AirDrop / 连续互通 | ❌ | 驱动无 `awdl0`（AWDL 未实现）；可行性分析见 [docs/airdrop-feasibility.md](docs/airdrop-feasibility.md) |
 
 ---
@@ -294,6 +298,9 @@ agent   brightness-watch   常驻 C 进程    写 DisplayServices           → 
 
 ## 版本要求（非常重要）
 
+> **macOS 26.7.2（25G332/25G330）必须用 `MtkWlanNative` ≥ 0.4.14**，`LegionBtFix` ≥ 0.3.0。
+> 旧的 0.4.13 / 0.2.0 只认 25G241（26.7.1），升级系统后原生前端会**拒绝加载**，Wi-Fi 退回以太网端口（无菜单）、蓝牙 `bluetoothd` 反复崩溃。
+
 `MtkWlanNative` **只支持 macOS 26.7.1 build 25G241**，靠 `MtkNativeAbi` 硬匹配，其他构建直接拒绝加载（安全设计：加载失败会回退成以太网前端 `en1`）。
 
 驱动本体 `MtkWlan` 0.11.3 是通用部分。
@@ -321,7 +328,11 @@ ioreg -r -c MtkWlan -l -w0 | grep -E '"MtkFrontEndActive"|"MtkState"'
 
 # 五、蓝牙：三件套 + 两个 NVRAM 键
 
-项目：<https://github.com/watchthelight-labs/mt7925-hackintosh-bluetooth>（`MtkBt` 0.2.2）
+项目：<https://github.com/watchthelight-labs/mt7925-hackintosh-bluetooth>（`MtkBt` 0.2.4）
+补丁：<https://github.com/watchthelight-labs/LegionBtFix>（`LegionBtFix` 0.3.0）
+
+> `LegionBtFix` 0.2.0 用 SHA-1 校验 `bluetoothd` 的页面，**只对 26.7.1（25G241）有效**；
+> 0.3.0 改成按指令窗口特征匹配，同时支持 25G241 与 25G332。升级系统后必须同步升级，否则 `bluetoothd` 会反复 SIGABRT 崩溃。
 
 ## 一个被推翻的误判
 
@@ -635,6 +646,11 @@ bluetoothInternalControllerInfo    <0000000000000000000000000000>
 | 蓝牙连一会儿自己关闭又打开 | MtkBt 0.2.2 的重置循环 bug（bluetoothd 反复 SIGBUS 崩溃） | 升级 MtkBt 到 **0.2.4**（0.2.3 修复自动关闭、0.2.4 修复重置循环） |
 | iPhone 个人热点在 Wi-Fi 菜单里点了没反应 | 菜单那条是**连续互通热点**（Instant Hotspot），走 AWDL —— 驱动没有 AWDL 接口 | 用「其他…」手动加入，或 `networksetup -setairportnetwork en1 "iPhone 12 mini" "密码"`；iPhone 需开「最大化兼容性」（2.4GHz + WPA2） |
 | Wi-Fi 扫描很慢 / 部分网络看不到 | `setCOUNTRY_CODE` 被驱动"只记录不执行"，区域码停在 `XZ`，DFS 频道只能被动扫描 | 路由器 5GHz 固定到 36–48 或 149–161（避开 52–144） |
+| 升级 26.7.2 后 Wi-Fi 没菜单、蓝牙反复崩 | `MtkWlanNative` <0.4.14 与 `LegionBtFix` <0.3.0 只认 25G241 | 升级到 Native 0.4.14+、LegionBtFix 0.3.0+ |
+| 「显示器」里除了默认尺寸都很模糊 | 那些是 1× 缩放；HiDPI 需要整倍 2× 光栅 | 选不带宽「（低分辨率）」的条目，或装 BetterDisplay |
+| 加了 `nvfbhidpi=1` 但没效果 | OpenCore 只写不存在的键，boot-args 被旧值占着 | 把 `boot-args` 加进 `NVRAM → Delete`，或用 `sudo nvram boot-args=...` |
+| 关机变重启 | 已排除 WOL / USB 唤醒 / PMEE / RTC；**拔掉外接 USB 设备即可正常关机** | 待查（USB 设备在 S5 的远程唤醒） |
+| 默认图标样式下部分系统图标有残影 | 玻璃质感图标的图层/图集渲染错位；2.6.3 未修（不是 #363） | 图标与小组件样式切「透明」可绕过 |
 | `Reset NVRAM` / `Recovery` 从菜单**彻底消失**，按空格也不出现 | 停用了 `ResetNvramEntry.efi` 驱动（这是彻底移除），而不是设 `HideAuxiliary` | 驱动改回 `Enabled=true`，用 `HideAuxiliary=true` 隐藏（按空格可见） |
 | 1401 做 USB 映射后只剩一个 USB-A 能用 | 它用类名（`AppleUSB20XHCIPort`）当端口键，同控制器第二个端口被覆盖 | 手工改成 `HS01/SS01/HS02/SS02` 并补全端口（见第十五节） |
 
@@ -767,12 +783,12 @@ python3 usb-test.py --map    # 打印映射表
 
 | 驱动 | 版本 | 来源 |
 |---|---|---|
-| NullMoth NVIDIA（NVRM/NVFB/NVAccel/NVRMAGDC） | 2.5.2 | `nullmoth/nvidia-macos-driver` |
-| MtkWlan（核心） | 0.11.3 | `watchthelight-labs/mt7925-hackintosh-wifi` |
-| MtkWlanNative（原生前端） | 0.4.11 | `watchthelight-labs/mt7925-hackintosh-wifi-native` |
-| **MtkBt** | **0.2.4** | `watchthelight-labs/mt7925-hackintosh-bluetooth` |
-| BlueToolFixup | 2.7.2 | Acidanthera |
-| LegionBtFix | 0.2.0 | watchthelight-labs |
+| NullMoth NVIDIA（NVRM/NVFB/NVAccel/NVRMAGDC） | **2.6.3** | `nullmoth/nvidia-macos-driver` |
+| MtkWlan（核心） | **0.12.1** | `watchthelight-labs/mt7925-hackintosh-wifi` |
+| MtkWlanNative（原生前端） | **0.4.14** | `watchthelight-labs/mt7925-hackintosh-wifi-native` |
+| MtkBt | 0.2.4 | `watchthelight-labs/mt7925-hackintosh-bluetooth` |
+| BlueToolFixup | 2.7.2 | Acidanthera（BrcmPatchRAM） |
+| LegionBtFix | **0.3.0** | watchthelight-labs |
 
 ## 为什么要盯着版本
 
@@ -875,9 +891,89 @@ OpenCore 的 `NVRAM → Add` **只写不存在的键**。如果 `boot-args` 已�
 
 ---
 
-# 十八、后续计划
+# 十八、HiDPI 与显示缩放
+
+## 开启方法
+
+两步（缺一不可）：
+
+**① boot-arg `nvfbhidpi=1`**
+
+```bash
+# 写 NVRAM（立即生效）
+cur=$(nvram boot-args | sed 's/^boot-args[[:space:]]*//')
+sudo nvram boot-args="$cur nvfbhidpi=1"
+```
+
+同时要写进 config（`NVRAM → Add → boot-args`），并且把 `boot-args` 加进 `NVRAM → Delete` ——
+否则 OpenCore 的"只写不存在的键"规则会让它下次启动就丢失。
+
+**② 升级到驱动 2.6.3 或更新**
+
+2.6.3 的 #354 才把 scaled 模式标记为 `kDisplayModeValidForHiResFlag`，「看起来像」尺寸才会出现在「显示器」里。
+
+## 生效验证
+
+```bash
+sudo log show --last boot --predicate 'eventMessage CONTAINS "nvfbhidpi"' | head -3
+```
+
+正常输出：
+
+```
+NVRM-fb: nvfbhidpi: scaled desktops up to 5120x3200 on a 2560x1600 raster
+```
+
+## 本机能用的 HiDPI 尺寸（2560×1600 面板）
+
+macOS 的 HiDPI 要求**像素 = 逻辑 × 2**，所以只有整倍光栅可用：
+
+| 逻辑尺寸 | 像素 | 清晰度 |
+|---|---|---|
+| **1280×800** | 2560×1600 | ✅ 原生 2×，最清晰 |
+| 1024×640 | 2048×1280 | ✅ 2× |
+| 800×600 | 1600×1200 | ✅ 2× |
+| 800×500 | 1600×1000 | ✅ 2× |
+| 1440×900 / 1680×1050 | 需要 2880×1800 / 3360×2100 | ❌ 驱动尚未暴露 scaled 模式 |
+
+## 列表里怎么分辨
+
+「显示器」里的条目：
+
+- 不带后缀的（如 `1280 × 800（默认）`）= **HiDPI，清晰**
+- 带「（低分辨率）」的 = **1×，模糊**
+
+可以用这个工具直接列出系统实际提供的 HiDPI 模式（源码见下）：
+
+```bash
+clang -O2 -o modes modes.c -framework CoreGraphics -framework CoreFoundation && ./modes
+```
+
+输出形如：
+
+```
+HiDPI 1280x800 (像素 2560x1600)
+HiDPI 1024x640 (像素 2048x1280)
+HiDPI 数量: 9
+```
+
+## 想要中间尺寸怎么办
+
+| 方案 | 说明 |
+|---|---|
+| 用 1280×800 | 最清晰，UI 偏大 |
+| **BetterDisplay**（免费） | 建虚拟屏实现任意缩放的 HiDPI，代价是轻微延迟 |
+| 等驱动暴露 scaled 模式 | `nvfbhidpi` 已经允许 2× 桌面，但 macOS 列表里没有非整倍选项 |
+
+---
+
+# 十九、后续计划
 
 - [ ] 内置麦克风：需要 macOS 版 ACP6x 驱动（见第十节）
+- [ ] 关机断电：已定位到"外接 USB 设备在 S5 保持唤醒"，尚未找到软件层解法
+- [ ] 图标残影：默认（玻璃）图标样式的图层渲染错位，2.6.3 未修；上报材料已备
+- [ ] 非整倍 HiDPI：`nvfbhidpi=1` 已允许 2× 桌面，但驱动未把 scaled 模式暴露给 macOS
+- [ ] 亮度持久化：2.6.3 的 PR #312 在本机不生效，继续用自建 LaunchDaemon（见第三节）
 - [ ] AirDrop / AWDL：驱动无 `awdl0`；移植 Owly 的可行性、工作量与验证方法见 [docs/airdrop-feasibility.md](docs/airdrop-feasibility.md)
 
 ---
