@@ -77,21 +77,47 @@
 
 > `MinKernel 25.0.0` 是 **Darwin 内核版本**（macOS 26 = Darwin 25），不是 macOS 版本号。
 
-## 4. 蓝牙三件套
+## 4. Wi-Fi + 蓝牙：`WTLWireless` 三条（0.15.0）
+
+0.15.0 起 Wi-Fi 与蓝牙合并成一个包，旧的三条（`MtkWlan` / `MtkWlanNative` / `MtkBt`）要一起删掉。
 
 ```xml
-<!-- Lilu → BlueToolFixup → MtkBt → LegionBtFix -->
+<!-- 顺序：WTLWireless → WTLWireless.Native → WTLWireless.Bt -->
+<dict><key>Arch</key><string>x86_64</string>
+<key>BundlePath</key><string>WTLWireless.kext</string>
+<key>Comment</key><string>WTLWireless: MediaTek MT7925 Wi-Fi driver</string>
+<key>Enabled</key><true/>
+<key>ExecutablePath</key><string>Contents/MacOS/WTLWireless</string>
+<key>MaxKernel</key><string></string><key>MinKernel</key><string></string>
+<key>PlistPath</key><string>Contents/Info.plist</string></dict>
+
+<dict><key>Arch</key><string>x86_64</string>
+<key>BundlePath</key><string>WTLWireless.kext/Contents/PlugIns/WTLWirelessNative.kext</string>
+<key>Comment</key><string>WTLWireless: the macOS Wi-Fi menu, needs boot-args mtkfe=native mtknativeif=1</string>
+<key>Enabled</key><true/>
+<key>ExecutablePath</key><string>Contents/MacOS/WTLWirelessNative</string>
+<key>MaxKernel</key><string>25.99.99</string><key>MinKernel</key><string>25.0.0</string>
+<key>PlistPath</key><string>Contents/Info.plist</string></dict>
+
+<dict><key>Arch</key><string>x86_64</string>
+<key>BundlePath</key><string>WTLWireless.kext/Contents/PlugIns/WTLWirelessBt.kext</string>
+<key>Comment</key><string>WTLWireless: MT7925 Bluetooth firmware loader (with BlueToolFixup)</string>
+<key>Enabled</key><true/>
+<key>ExecutablePath</key><string>Contents/MacOS/WTLWirelessBt</string>
+<key>MaxKernel</key><string></string><key>MinKernel</key><string>21.0.0</string>
+<key>PlistPath</key><string>Contents/Info.plist</string></dict>
+```
+
+> 插件不能单独拿出来放 `Kexts/`：`BundlePath` 必须是上面那种「主体包内的相对路径」，
+> 而且主体条目要排在插件条目之前。
+
+配套的两个补丁 kext（放在上面三条之后）：
+
+```xml
 <dict><key>Arch</key><string>Any</string>
 <key>BundlePath</key><string>BlueToolFixup.kext</string>
 <key>Enabled</key><true/>
 <key>ExecutablePath</key><string>Contents/MacOS/BlueToolFixup</string>
-<key>MaxKernel</key><string></string><key>MinKernel</key><string>21.0.0</string>
-<key>PlistPath</key><string>Contents/Info.plist</string></dict>
-
-<dict><key>Arch</key><string>Any</string>
-<key>BundlePath</key><string>MtkBt.kext</string>
-<key>Enabled</key><true/>
-<key>ExecutablePath</key><string>Contents/MacOS/MtkBt</string>
 <key>MaxKernel</key><string></string><key>MinKernel</key><string>21.0.0</string>
 <key>PlistPath</key><string>Contents/Info.plist</string></dict>
 
@@ -103,26 +129,7 @@
 <key>PlistPath</key><string>Contents/Info.plist</string></dict>
 ```
 
-## 5. Wi-Fi
-
-```xml
-<!-- 顺序：MtkWlan → MtkWlanNative -->
-<dict><key>Arch</key><string>x86_64</string>
-<key>BundlePath</key><string>MtkWlan.kext</string>
-<key>Enabled</key><true/>
-<key>ExecutablePath</key><string>Contents/MacOS/MtkWlan</string>
-<key>MaxKernel</key><string></string><key>MinKernel</key><string></string>
-<key>PlistPath</key><string>Contents/Info.plist</string></dict>
-
-<dict><key>Arch</key><string>x86_64</string>
-<key>BundlePath</key><string>MtkWlanNative.kext</string>
-<key>Enabled</key><true/>
-<key>ExecutablePath</key><string>Contents/MacOS/MtkWlanNative</string>
-<key>MaxKernel</key><string></string><key>MinKernel</key><string></string>
-<key>PlistPath</key><string>Contents/Info.plist</string></dict>
-```
-
-## 6. 电池：ACPI 补丁
+## 5. 电池：ACPI 补丁
 
 ```xml
 <!-- ACPI → Add -->
@@ -141,7 +148,7 @@
 <key>Replace</key><data>WFEyMA==</data></dict>  <!-- "XQ20" -->
 ```
 
-## 7. Windows 引导
+## 6. Windows 引导
 
 ```xml
 <!-- Misc → Entries 必须是空数组 -->

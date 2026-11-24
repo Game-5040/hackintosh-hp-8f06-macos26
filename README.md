@@ -1,8 +1,8 @@
 # HP 笔记本（Ryzen 9 9955HX + RTX 5070）黑苹果 macOS 26 Tahoe 实战记录
 
 > 在 HP 8F06 上**全新安装** macOS 26，让显示、亮度、Wi-Fi、蓝牙、音频输出、电池、USB、双系统引导全部可用。
-> 当前系统：**macOS 26.7.2（25G332）**，驱动 NVIDIA 2.6.3 + MtkWlan 0.12.1 / Native 0.4.14 + MtkBt 0.2.4 / LegionBtFix 0.3.0。
-> 已知缺口：内置麦克风、睡眠（无 S3）、AirDrop（无 AWDL）、关机断电（待查）、部分图标残影。
+> 当前系统：**macOS 26.7.3（25G342）**，驱动 NVIDIA **3.1** + **WTLWireless 0.15.0**（Wi-Fi 与蓝牙同一个包）+ BlueToolFixup 2.7.2 / LegionBtFix 0.3.0。
+> 已知缺口：内置麦克风、睡眠（无 S3）、AirDrop（无 AWDL）、关机断电（待查）、部分图标残影（3.1 仍有）、iPhone 5 GHz 热点。
 
 ## 机器
 
@@ -14,27 +14,27 @@
 | 屏幕 | 2560 × 1600 |
 | 网卡 | MediaTek MT7925（Wi-Fi PCI `14C3:7925`，蓝牙 USB `0E8D:8C38`，ACP `1022:15E2` rev `0x62`） |
 | 声卡 | Realtek ALC245（HDA `0x10EC0245`） |
-| 系统 | macOS 26.7.1 (25G241) / Darwin 25.6.0 |
+| 系统 | macOS 26.7.3 (25G342) / Darwin 25.6.0 |
 | SMBIOS | MacBookPro16,2 |
-| 引导 | OpenCore（1401 生成，1.0.8） |
+| 引导 | OpenCore **1.0.8 官方 RELEASE**（已替换 1401 的 DEBUG 构建） |
 
 ## 结果总览
 
 | 功能 | 状态 | 方案 |
 |---|---|---|
-| 显示 / Metal 加速 | ✅ | NullMoth NVIDIA 驱动 **2.6.3** |
-| 硬件背光（亮度） | ✅ | `nvrmacpibl=1` + 自建 LaunchDaemon 记住亮度（2.6.3 的 PR #312 在本机未生效） |
-| HiDPI 缩放 | ⚠️ | `nvfbhidpi=1` + 2.6.3 的「看起来像」尺寸；非整倍 HiDPI 未暴露，只能整倍 2×（1280×800） |
-| Wi-Fi | ✅ | watchthelight `MtkWlan` 0.12.1 + `MtkWlanNative` **0.4.14**（26.7.2 需要 ≥0.4.14） |
-| 蓝牙 | ✅ | `MtkBt` 0.2.4 + `BlueToolFixup` 2.7.2 + `LegionBtFix` **0.3.0**（0.2.0 只支持 26.7.1） |
-| 音频输出 | ✅ | `AppleALC` 1.9.9 + **`SimpleHDA` 1.0.0** + layout 11 |
+| 显示 / Metal 加速 | ✅ | NullMoth NVIDIA 驱动 **3.1** |
+| 硬件背光（亮度） | ✅ | `nvrmacpibl=1` + 自建 LaunchDaemon 记住亮度（PR #312 在本机未生效） |
+| HiDPI 缩放 | ⚠️ | `nvfbhidpi=1` + 驱动的「看起来像」尺寸；非整倍 HiDPI 未暴露，只能整倍 2×（1280×800） |
+| Wi-Fi | ✅ | watchthelight **`WTLWireless` 0.15.0**（核心 + 原生前端 + 蓝牙固件三合一） |
+| 蓝牙 | ✅ | `WTLWireless.Bt` 0.15.0 + `BlueToolFixup` 2.7.2 + `LegionBtFix` **0.3.0** |
+| 音频输出 | ✅ | `AppleALC` 1.9.9 + **`SimpleHDA` 1.0.0** + layout 11；驱动 2.7 起自带 `NMXAudio`，实测接管了 ALC245 输出 |
 | 电池 / 充电状态 | ✅ | `SSDT-AC` + `_PSR`/`_Q20` 重命名（26 上充电实时更新；"电源适配器已连接"指示不显示） |
 | Windows 双系统引导 | ✅ | `LauncherOption = Full` + 自定义 `Entries` 图标 |
 | USB 端口映射 | ✅ | `USBToolBox` + 手工修正的 `UTBMap`（9 个端口，内部 255） |
 | 内置麦克风 | ❌ | 挂在 AMD ACP6x（非 HDA），macOS 无驱动 |
 | 睡眠 | ❌ | 固件只声明 Modern Standby，无 S3 |
 | 关机断电 | ⚠️ | 关机变重启；已排除 WOL/USB 唤醒/PMEE/RTC，定位到**拔掉 USB 设备即可正常关机** |
-| 图标渲染残影 | ❌ | 默认（玻璃）图标样式下部分系统图标串图层；2.6.3 仍存在（不是 #363） |
+| 图标渲染残影 | ❌ | 默认（玻璃）图标样式下部分系统图标串图层；3.1 仍存在（不是 #363） |
 | AirDrop / 连续互通 | ❌ | 驱动无 `awdl0`（AWDL 未实现）；可行性分析见 [docs/airdrop-feasibility.md](docs/airdrop-feasibility.md) |
 
 ---
@@ -105,8 +105,9 @@
 - 26 里是**全新的系统**，没有驱动、没有音频、没有 Wi-Fi/蓝牙 —— 这些都要重装（见后续各节）
 - 引导器要用能同时识别两个系统的 OpenCore
 
-> 目标构建必须是 **26.7.1 (25G241)** —— 这是 `MtkWlanNative` 和 `LegionBtFix` 硬性要求的版本。
-> 装成别的 26.x 小版本，这两个 kext 会直接拒绝加载。
+> 无线这套（`WTLWireless` + `LegionBtFix`）对系统构建是**白名单匹配**的：装成白名单外的小版本，
+> 原生前端会拒绝加载（Wi-Fi 退回以太网端口、没有菜单），`bluetoothd` 也可能反复崩。
+> 现在用 26.7.3（25G342）没问题，但每次升级小版本后都要回来确认一次（见第四、五节）。
 
 ## 关键：驱动要"从 15 写进 26"
 
@@ -216,7 +217,18 @@ cd /Users/Shared/nullmoth/pkgroot && ./install.sh
 
 ## 驱动版本
 
-- 2.5.2（`NVRM` / `NVRMFB` / `NVRMAGDC` 通用，`NVAccel` 按系统分构建：`kexts/15` 和 `kexts/26`）
+`NVRM` / `NVRMFB` / `NVRMAGDC` 是通用部分，`NVAccel` 按系统分构建（`kexts/15`、`kexts/26`）。一路升上来的版本：
+
+| 版本 | 关键变化 |
+|---|---|
+| 2.5.2 | 我们最早用的一版，`kexts/15` + `kexts/26` 分目录 |
+| 2.6.3 | HiDPI「看起来像」尺寸（#354）、Dock/控制中心模糊修复（#363）、屏幕旋转 |
+| 2.7 | **自带 Tahoe HD Audio 驱动**（`NMXAudio`，Realtek + NVIDIA HDMI/DP）、ARM apps 翻译器、内核 panic 修复 |
+| 2.8 | 开源内核模块换到 **620.70.06**、DLSS 4/4.5 走 MetalFX、Metal 4 对象模型 |
+| 2.9 | 关机/重启前把 GPU 静默、BAR 还给固件（#488）；笔记本亮度启动时不再覆盖已保存值（#525）；240/300Hz 面板 |
+| **3.1** | 当前使用中（26.7.3） |
+
+版本之间不是只改 bug：2.7 把音频接管了，2.8 换的是内核模块本体，2.9 动的是关机路径 —— 升级前先看 release notes 再决定。
 
 ---
 
@@ -291,48 +303,96 @@ agent   brightness-watch   常驻 C 进程    写 DisplayServices           → 
 
 ---
 
-# 四、Wi-Fi：`MtkWlan` + `MtkWlanNative`
+# 四、Wi-Fi / 蓝牙：`WTLWireless` 0.15.0（三合一）
 
-项目：<https://github.com/watchthelight-labs/mt7925-hackintosh-wifi>（驱动）
-前端：<https://github.com/watchthelight-labs/mt7925-hackintosh-wifi-native>（原生菜单）
+仓库：<https://github.com/watchthelight-labs/WTLWireless>
 
-## 版本要求（非常重要）
+0.15.0 起，原来三个独立项目（`mt7925-hackintosh-wifi` 的 `MtkWlan`、`-native` 的 `MtkWlanNative`、`-bluetooth` 的 `MtkBt`）合并成**一个包**：
 
-> **macOS 26.7.2（25G332/25G330）必须用 `MtkWlanNative` ≥ 0.4.14**，`LegionBtFix` ≥ 0.3.0。
-> 旧的 0.4.13 / 0.2.0 只认 25G241（26.7.1），升级系统后原生前端会**拒绝加载**，Wi-Fi 退回以太网端口（无菜单）、蓝牙 `bluetoothd` 反复崩溃。
+```
+WTLWireless.kext
+└── Contents/PlugIns/
+    ├── WTLWirelessNative.kext   原生 Wi-Fi 前端（IO80211 菜单）
+    └── WTLWirelessBt.kext       蓝牙固件加载器
+```
 
-`MtkWlanNative` **只支持 macOS 26.7.1 build 25G241**，靠 `MtkNativeAbi` 硬匹配，其他构建直接拒绝加载（安全设计：加载失败会回退成以太网前端 `en1`）。
-
-驱动本体 `MtkWlan` 0.11.3 是通用部分。
+旧仓库已归档或跳转到新仓库。三个 kext **不能与旧的 `MtkWlan` / `MtkWlanNative` / `MtkBt` 共存**，升级时要把旧的三条一起删掉。
 
 ## 安装
 
 ```
-1. MtkWlan.kext 和 MtkWlanNative.kext 放进 EFI/OC/Kexts/
-2. Kernel → Add 加两条，MtkWlan 在前
-3. boot-args 加：mtkfe=native mtknativeif=1
+1. 从 EFI/OC/Kexts 移除 MtkWlan.kext、MtkWlanNative.kext、MtkBt.kext
+2. 放入 WTLWireless.kext（两个插件在 Contents/PlugIns 里，跟着主体走）
+3. Kernel → Add 删掉旧三条，按顺序加三条：
+     WTLWireless         ← 主体
+     WTLWireless.Native  ← 插件
+     WTLWireless.Bt      ← 插件
+4. boot-args 保持：mtkfe=native mtknativeif=1
+5. BlueToolFixup 2.7.2、LegionBtFix 0.3.0 保持不动
 ```
 
-## 为什么不用原来的 itlmt7925
+> 主体必须排在插件之前。插件依赖主体里的符号，顺序反了会加载失败。
 
-`itlmt7925`（GA403WM 那套）**只支持 macOS 15**，26 上不能用。两套驱动都驱动同一个 PCI 设备，不能共存。
-
-验证：
+## 验证
 
 ```bash
-ioreg -r -c MtkWlan -l -w0 | grep -E '"MtkFrontEndActive"|"MtkState"'
-# 期望 MtkFrontEndActive = "native"，MtkState = "W6 pass: en1 passing traffic"
+kmutil showloaded | grep watchthelight
+# org.watchthelight.WTLWireless (0.15.0)
+# org.watchthelight.WTLWireless.Native (0.15.0)
+# org.watchthelight.WTLWireless.Bt (0.15.0)
+
+ioreg -r -c WTLWireless -l -w0 | grep -E '"MtkState"|"MtkFrontEndActive"|"MtkCountry"|"MtkChipName"'
+# MtkState = "W6 pass: en1 passing traffic"
+# MtkFrontEndActive = "native"
+# MtkChipName = "MT7925"
 ```
+
+`MtkScan` 是驱动自己的扫描缓存，一行一个网络：`SSID/信道/RSSI/加密`，末尾带 `!` 表示**不可加入**（比如企业级 `wpa2!`）。
+
+## 版本与 ABI
+
+原生前端靠 `MtkNativeAbi` 做**白名单硬匹配**：`MtkNativeAbi` 里的 `Builds` 列出它认的系统构建，不匹配就拒绝加载（回退成以太网前端 `en1`，菜单消失）。
+
+本机 26.7.3（25G342）不在白名单里（只有 25G241 / 25G332 / 25G416），驱动会**回退到不高于当前系统的最新白名单构建 25G332** —— 实测照样能联网，只是这种跨版本组合官方没承诺。
+
+## 已知缺口
+
+| 缺口 | 表现 |
+|---|---|
+| WPA3-SAE / 企业级 802.1X | `MtkScan` 里标 `!`，点了也连不上 |
+| AWDL | 没有 `awdl0`，AirDrop / 连续互通 / 隔空播放都不可用 |
+| 区域码 | `setCOUNTRY_CODE` 只记录不执行，DFS 频道只能被动扫描 |
+| **iPhone 5 GHz 热点** | 驱动缓存里有、标着可加入，但 airportd 拿不到，见下 |
+
+## iPhone 热点：只有 2.4 GHz 能用
+
+实测（2026-11，WTLWireless 0.15.0 / macOS 26.7.3）：
+
+| 热点 | 驱动缓存 `MtkScan` | `networksetup` 返回 | 结果 |
+|---|---|---|---|
+| iPhone 5 GHz（ch44） | `iPhone 12 mini/44/-33/wpa2`（无 `!`） | `Could not find network` | macOS 看不见 |
+| iPhone 2.4 GHz（ch6） | `iPhone 12 mini/6/-31/wpa2` | 加入成功 | `172.20.10.2`，能上网 |
+| 安卓 5 GHz 热点（ch149） | 有 | 加入成功 | 正常 |
+
+也就是说：**安卓的 5 GHz 热点能用，iPhone 的 5 GHz 热点不能**；iPhone 打开「最大化兼容性」降到 2.4 GHz 后就稳定了。
+
+菜单里那条同名条目是「连续互通热点」（Instant Hotspot），走 AWDL，本来就用不了，要走命令行：
+
+```bash
+networksetup -setairportnetwork en1 "iPhone 12 mini" "密码"
+```
+
+封装好的脚本见 [`tools/wifi/wifi-join.sh`](tools/wifi/wifi-join.sh)（`list` / `status` / `join` / `forget`，连不上时会打印手机热点的三条对策）。
 
 ---
 
 # 五、蓝牙：三件套 + 两个 NVRAM 键
 
-项目：<https://github.com/watchthelight-labs/mt7925-hackintosh-bluetooth>（`MtkBt` 0.2.4）
-补丁：<https://github.com/watchthelight-labs/LegionBtFix>（`LegionBtFix` 0.3.0）
+加载器：<https://github.com/watchthelight-labs/WTLWireless>（蓝牙是包里的 `WTLWireless.Bt` 插件）
+补丁：<https://github.com/watchthelight-labs/WTLLegionBtFix>（`LegionBtFix` 0.3.0，仓库已改名）
 
 > `LegionBtFix` 0.2.0 用 SHA-1 校验 `bluetoothd` 的页面，**只对 26.7.1（25G241）有效**；
-> 0.3.0 改成按指令窗口特征匹配，同时支持 25G241 与 25G332。升级系统后必须同步升级，否则 `bluetoothd` 会反复 SIGABRT 崩溃。
+> 0.3.0 改成按指令窗口特征匹配，25G241 / 25G332 都能匹配（26.7.3 上实测正常）。升级系统后必须同步升级，否则 `bluetoothd` 会反复 SIGABRT 崩溃。
 
 ## 一个被推翻的误判
 
@@ -356,8 +416,8 @@ bluetoothInternalControllerInfo = <0000000000000000000000000000>   14 字节（�
 | kext | 作用 |
 |---|---|
 | `BlueToolFixup` 2.7.2 | 让 `bluetoothd` 接受第三方控制器 |
-| `MtkBt` 0.2.2 | 给 MT7925 灌蓝牙固件（支持 `0E8D:8C38`，我们的卡原生在列） |
-| `LegionBtFix` 0.2.0 | 修 `bluetoothd` 的 LE 连接崩溃（**只匹配 26.7.1 25G241**） |
+| `WTLWireless.Bt` 0.15.0 | 给 MT7925 灌蓝牙固件（原 `MtkBt`；0.15.0 起并进 WTLWireless 包，支持 `0E8D:8C38`） |
+| `LegionBtFix` 0.3.0 | 修 `bluetoothd` 的 LE 连接崩溃（按指令窗口匹配，不再锁单个系统构建） |
 
 `LegionBtFix` 名字带 Legion 但不是联想专用：它补的是苹果 `bluetoothd` 的机器码（按页面哈希匹配），与笔记本品牌无关。
 
@@ -394,6 +454,10 @@ $ kextstat | grep -i hda
 另一条路是把 AppleHDA 重新装回 `/S/L/E`，但那会破坏系统卷密封、需要关 SIP，每次系统更新都可能失效。
 
 **SimpleHDA 用 OpenCore 注入原版 AppleHDA 载荷**，系统分区不动。
+
+> **后来的变化**：驱动 2.7 起，NullMoth 自己也带了一个 Tahoe 音频驱动（`NMXAudio.kext`），
+> 实测它接管了 ALC245 的模拟输出（`system_profiler SPAudioDataType` 里 Manufacturer 是 `NullMoth`），
+> SimpleHDA + AppleALC 仍然加载着、也能用。两套同时在，默认输出走 `Realtek ALC245 (Analog)`。
 
 ## 安装
 
@@ -580,9 +644,9 @@ macOS 需要传统 S3 才能睡眠，无解。
 ## boot-args
 
 ```
--v debug=0x100 keepsyms=1 -amfipassbeta -vi2c-force-polling revpatch=sbvmm
-nvfb=1 nvaccel=1 nvfbheads=4 -nvkmsnosmooth amfi_get_out_of_my_way=0x1 amfi=0x80
-ipc_control_port_options=0 gfxrst=4 mtkfe=native mtknativeif=1 nvrmacpibl=1
+-amfipassbeta -vi2c-force-polling revpatch=sbvmm,cpuname nvfb=1 nvaccel=1 nvfbheads=4
+-nvkmsnosmooth amfi_get_out_of_my_way=0x1 amfi=0x80 ipc_control_port_options=0 gfxrst=4
+mtkfe=native mtknativeif=1 nvrmacpibl=1 revcpu=1 nvfbhidpi=1
 ```
 
 | 参数 | 作用 |
@@ -592,8 +656,11 @@ ipc_control_port_options=0 gfxrst=4 mtkfe=native mtknativeif=1 nvrmacpibl=1
 | `gfxrst=4` | 关闭 WhateverGreen 的启动画面拷贝（防登录时 panic） |
 | `amfi=0x80` | 关闭 AMFI（加载未签名 kext） |
 | `mtkfe=native mtknativeif=1` | MediaTek Wi-Fi 走原生前端 |
-| `keepsyms=1` | SimpleHDA 要求 |
-| `revpatch=sbvmm` | RestrictEvents 相关 |
+| `revpatch=sbvmm,cpuname` + `revcpu=1` | RestrictEvents：自定义 CPU 名称（见第十七节） |
+| `nvfbhidpi=1` | HiDPI「看起来像」尺寸（见第十八节） |
+
+> 跑码用的 `-v debug=0x100 keepsyms=1` 平时**不用**开。用 [`tools/boot-verbose/boot-verbose.sh`](tools/boot-verbose/boot-verbose.sh) 一句话开关：
+> `./boot-verbose.sh on|off|status|persist`，其中 `persist` 会把当前值写进 config 并从 `NVRAM → Delete` 移除。
 
 ## kext（35 条，按加载顺序）
 
@@ -602,8 +669,8 @@ Lilu → AMFIPass → AppleMCEReporterDisabler → BrightnessKeys → ECEnabler
 → NVMeFix → RealtekRTL8111 → RestrictEvents → VirtualSMC → SMCBatteryManager
 → SMCLightSensor → USBToolBox → UTBDefault → VoodooI2C(+PlugIns) → VoodooI2CHID
 → VoodooPS2Controller(+PlugIns) → WhateverGreen → NVRM → NVRMFB → NVRMAGDC
-→ NVAccel → MtkWlan → MtkWlanNative → BlueToolFixup → MtkBt → LegionBtFix
-→ AppleALC → SimpleHDA
+→ NVAccel → WTLWireless → WTLWireless.Native → WTLWireless.Bt
+→ BlueToolFixup → LegionBtFix → AppleALC → SimpleHDA
 ```
 
 ## ACPI
@@ -620,7 +687,43 @@ Patch:  _OSI → XOSI, _PSR → XPSR, _Q20 → XQ20
 boot-args                          见上
 bluetoothExternalDongleFailed      <00>
 bluetoothInternalControllerInfo    <0000000000000000000000000000>
+4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:revcpuname
+                                   "AMD Ryzen 9 9955HX 16-Core Processor"
 ```
+
+## 引导：把 1401 的 DEBUG 构建换成官方 RELEASE
+
+1401 生成的 EFI 里，`OpenCore.efi` 是 **DEBUG 构建**（`872,448` 字节，版本串 `DBG-109-2026-10-19`）。它会在读 config **之前**先往屏幕上打十几行 `OC:` 横幅：
+
+```
+OC: Starting OpenCore...
+OC: Loaded configuration of 62798 bytes
+OCS: Missing key Base, context <Patch>!
+OC: Watchdog status is 0
+```
+
+这些行来自 OpenCore 自己的初始化代码，**config 里的 `Misc → Debug → Target` 管不到**（`Target` 要等日志系统初始化后才生效，那已经是第 15 行之后的事了）。想彻底去掉只有换 RELEASE 构建：
+
+```
+1. 下载 OpenCore-1.0.8-RELEASE.zip，取 X64/EFI/OC/OpenCore.efi（626,688 字节）
+2. 同版本的 BOOTx64.efi / OpenRuntime.efi / OpenCanopy.efi / ResetNvramEntry.efi 一起换
+   （版本不一致会被拒载，这一组要整组换）
+3. 换之前跑一遍 ocvalidate，把 config 修干净
+```
+
+`Misc → Debug → Target` 的位含义（顺带记一下）：
+
+| 位 | 去哪 |
+|---|---|
+| `0x01` | 日志文件 |
+| `0x02` | **屏幕 console** |
+| `0x04` | DataHub |
+| `0x08` | 串口 |
+| `0x40` | 文件（非易失） |
+
+本机用 `65`（`0x41` = 文件 + 日志，关掉屏幕）。换成 RELEASE 后，`opencore-*.txt` 里只剩下 boot.efi 自己写的 `AAPL:` 行。
+
+整套替换脚本见 [`tools/oc-release-swap/install.sh`](tools/oc-release-swap/install.sh)（会先备份整个 `EFI` 再动手，并生成 `rollback.sh`）。
 
 ---
 
@@ -643,14 +746,18 @@ bluetoothInternalControllerInfo    <0000000000000000000000000000>
 | 重启后亮度不恢复（面板总是最亮） | 驱动不保存亮度；且 `brightness` 参数写了不生效，真正生效的是 `linear-brightness` | 读写 `linear-brightness` + 两个 LaunchDaemon（见第三节「持久化」） |
 | OC 菜单突然多出 Recovery / `1401:` 工具条目 | 1401 写配置时重置了 `HideAuxiliary`（且它会新装两个工具，默认非辅助） | `HideAuxiliary = true`，并把工具条目的 `Auxiliary` 设为 `true` |
 | Wi-Fi 保存过的网络连不上（一直转圈后失败） | 旧的保存状态（密码/PMK/私有 MAC）与当前驱动不符 | 系统设置里**忘记此网络**后重新连接；必要时关闭「私有 Wi-Fi 地址」 |
-| 蓝牙连一会儿自己关闭又打开 | MtkBt 0.2.2 的重置循环 bug（bluetoothd 反复 SIGBUS 崩溃） | 升级 MtkBt 到 **0.2.4**（0.2.3 修复自动关闭、0.2.4 修复重置循环） |
-| iPhone 个人热点在 Wi-Fi 菜单里点了没反应 | 菜单那条是**连续互通热点**（Instant Hotspot），走 AWDL —— 驱动没有 AWDL 接口 | 用「其他…」手动加入，或 `networksetup -setairportnetwork en1 "iPhone 12 mini" "密码"`；iPhone 需开「最大化兼容性」（2.4GHz + WPA2） |
+| 蓝牙连一会儿自己关闭又打开 | 固件加载器 0.2.2 的重置循环 bug（bluetoothd 反复 SIGBUS 崩溃） | 升到 **0.2.4+**（0.2.3 修自动关闭、0.2.4 修重置循环；0.15.0 起并进 `WTLWireless.Bt`） |
+| iPhone 个人热点在 Wi-Fi 菜单里点了没反应 / 报找不到网络 | 菜单那条是**连续互通热点**（Instant Hotspot），走 AWDL；而且 iPhone 的 **5 GHz** 热点驱动看不见（缓存里有、标可加入，airportd 仍报 `Could not find network`） | iPhone 打开「最大化兼容性」降到 2.4 GHz，再用「其他…」或 `networksetup -setairportnetwork en1 "iPhone 12 mini" "密码"`；脚本见 [`tools/wifi/wifi-join.sh`](tools/wifi/wifi-join.sh) |
 | Wi-Fi 扫描很慢 / 部分网络看不到 | `setCOUNTRY_CODE` 被驱动"只记录不执行"，区域码停在 `XZ`，DFS 频道只能被动扫描 | 路由器 5GHz 固定到 36–48 或 149–161（避开 52–144） |
-| 升级 26.7.2 后 Wi-Fi 没菜单、蓝牙反复崩 | `MtkWlanNative` <0.4.14 与 `LegionBtFix` <0.3.0 只认 25G241 | 升级到 Native 0.4.14+、LegionBtFix 0.3.0+ |
+| 升级系统后 Wi-Fi 没菜单、蓝牙反复崩 | 前端 ABI 白名单没匹配当前构建；`LegionBtFix` 版本也没跟上 | 换 `WTLWireless` 0.15.0（三条 kext，主体在插件前）+ `LegionBtFix` 0.3.0 |
 | 「显示器」里除了默认尺寸都很模糊 | 那些是 1× 缩放；HiDPI 需要整倍 2× 光栅 | 选不带宽「（低分辨率）」的条目，或装 BetterDisplay |
 | 加了 `nvfbhidpi=1` 但没效果 | OpenCore 只写不存在的键，boot-args 被旧值占着 | 把 `boot-args` 加进 `NVRAM → Delete`，或用 `sudo nvram boot-args=...` |
-| 关机变重启 | 已排除 WOL / USB 唤醒 / PMEE / RTC；**拔掉外接 USB 设备即可正常关机** | 待查（USB 设备在 S5 的远程唤醒） |
-| 默认图标样式下部分系统图标有残影 | 玻璃质感图标的图层/图集渲染错位；2.6.3 未修（不是 #363） | 图标与小组件样式切「透明」可绕过 |
+| 关机变重启 | 已排除 WOL / USB 唤醒 / PMEE / RTC；**拔掉外接 USB 设备即可正常关机** | 待查（USB 设备在 S5 的远程唤醒）；驱动 2.9 修了 #488，待复测 |
+| 开机前固定十几行 `OC:` 横幅，改 `Target` 无效 | 1401 的 `OpenCore.efi` 是 DEBUG 构建，横幅在日志系统初始化之前打印 | 换官方 1.0.8 RELEASE（见第十二节） |
+| `Target` 改了屏幕还在打日志 | `0x02` 位才是屏幕输出；只改日志级别、或者改的是文件位都没用 | `Target = 65`（`0x41`：文件 + 日志，屏幕关） |
+| `ocvalidate` 报 `Missing key Base, context <Patch>!` | `ACPI → Patch` 条目缺 `Base` / `BaseSkip` | 补两个键（值为空串 / 0） |
+| `ocvalidate` 报注释含非法字符 | `Kernel → Add` 的 `Comment` 里有中文 | 注释改 ASCII，`ocvalidate` 要求 `No issues found` 再重启 |
+| 默认图标样式下部分系统图标有残影 | 玻璃质感图标的图层/图集渲染错位；3.1 仍未修（不是 #363） | 图标与小组件样式切「透明」可绕过 |
 | `Reset NVRAM` / `Recovery` 从菜单**彻底消失**，按空格也不出现 | 停用了 `ResetNvramEntry.efi` 驱动（这是彻底移除），而不是设 `HideAuxiliary` | 驱动改回 `Enabled=true`，用 `HideAuxiliary=true` 隐藏（按空格可见） |
 | 1401 做 USB 映射后只剩一个 USB-A 能用 | 它用类名（`AppleUSB20XHCIPort`）当端口键，同控制器第二个端口被覆盖 | 手工改成 `HS01/SS01/HS02/SS02` 并补全端口（见第十五节） |
 
@@ -662,10 +769,8 @@ bluetoothInternalControllerInfo    <0000000000000000000000000000>
 |---|---|
 | [nullmoth/1401](https://github.com/nullmoth/1401) | NVIDIA 黑苹果一键工具（含 Tahoe 升级准备） |
 | [nullmoth/nvidia-macos-driver](https://github.com/nullmoth/nvidia-macos-driver) | NVIDIA Metal 驱动 |
-| [watchthelight-labs/mt7925-hackintosh-wifi](https://github.com/watchthelight-labs/mt7925-hackintosh-wifi) | MT7925 Wi-Fi 驱动 |
-| [watchthelight-labs/mt7925-hackintosh-wifi-native](https://github.com/watchthelight-labs/mt7925-hackintosh-wifi-native) | Wi-Fi 原生菜单 |
-| [watchthelight-labs/mt7925-hackintosh-bluetooth](https://github.com/watchthelight-labs/mt7925-hackintosh-bluetooth) | MT7925 蓝牙固件加载器 |
-| [watchthelight-labs/LegionBtFix](https://github.com/watchthelight-labs/LegionBtFix) | bluetoothd 补丁（26.7.1） |
+| [watchthelight-labs/WTLWireless](https://github.com/watchthelight-labs/WTLWireless) | MT7925 Wi-Fi 驱动 + 原生菜单 + 蓝牙固件（0.15.0 三合一） |
+| [watchthelight-labs/WTLLegionBtFix](https://github.com/watchthelight-labs/WTLLegionBtFix) | bluetoothd 补丁（0.3.0，按指令窗口匹配） |
 | [laobamac/SimpleHDA](https://github.com/laobamac/SimpleHDA) | 在 Tahoe 上恢复 AppleHDA |
 | [acidanthera/AppleALC](https://github.com/acidanthera/AppleALC) | 音频 layout |
 | [acidanthera/BrcmPatchRAM](https://github.com/acidanthera/BrcmPatchRAM) | BlueToolFixup |
@@ -783,12 +888,13 @@ python3 usb-test.py --map    # 打印映射表
 
 | 驱动 | 版本 | 来源 |
 |---|---|---|
-| NullMoth NVIDIA（NVRM/NVFB/NVAccel/NVRMAGDC） | **2.6.3** | `nullmoth/nvidia-macos-driver` |
-| MtkWlan（核心） | **0.12.1** | `watchthelight-labs/mt7925-hackintosh-wifi` |
-| MtkWlanNative（原生前端） | **0.4.14** | `watchthelight-labs/mt7925-hackintosh-wifi-native` |
-| MtkBt | 0.2.4 | `watchthelight-labs/mt7925-hackintosh-bluetooth` |
+| NullMoth NVIDIA（NVRM/NVRFB/NVAccel/NVRMAGDC） | **3.1** | `nullmoth/nvidia-macos-driver` |
+| NMXAudio（驱动自带音频） | 1.0.0 | 同上 |
+| WTLWireless（Wi-Fi 核心） | **0.15.0** | `watchthelight-labs/WTLWireless` |
+| WTLWireless.Native（原生前端，插件） | **0.15.0** | 同上 |
+| WTLWireless.Bt（蓝牙固件，插件） | **0.15.0** | 同上 |
 | BlueToolFixup | 2.7.2 | Acidanthera（BrcmPatchRAM） |
-| LegionBtFix | **0.3.0** | watchthelight-labs |
+| LegionBtFix | **0.3.0** | `watchthelight-labs/WTLLegionBtFix` |
 
 ## 为什么要盯着版本
 
@@ -803,9 +909,8 @@ python3 usb-test.py --map    # 打印映射表
 
 ```bash
 for repo in \
-  watchthelight-labs/mt7925-hackintosh-wifi \
-  watchthelight-labs/mt7925-hackintosh-wifi-native \
-  watchthelight-labs/mt7925-hackintosh-bluetooth \
+  watchthelight-labs/WTLWireless \
+  watchthelight-labs/WTLLegionBtFix \
   nullmoth/nvidia-macos-driver ; do
   echo "== $repo"
   curl -s "https://api.github.com/repos/$repo/releases/latest" \
@@ -825,7 +930,8 @@ done
 
 | 问题 | 跟踪 |
 |---|---|
-| 应用图标渲染异常 | `nullmoth/nvidia-macos-driver` issue #89（`icons-test1` 测试插件未进正式版） |
+| 应用图标渲染异常 | `nullmoth/nvidia-macos-driver` issue #89（`icons-test1` 测试插件未进正式版；3.1 仍复现） |
+| GPU 温度读不到 | 驱动读 TSENS `0x20460`，本机 Blackwell 返回 `0xbadf1100` 哨兵值，被驱动拒绝发布；报告草稿在 `GPU温度报告.md` |
 | Wi-Fi 区域码停在 `XZ`，DFS 扫描慢 | 驱动 `setCOUNTRY_CODE` 只记录不执行，无 boot-arg 可设 |
 | WPA3-SAE / 企业级 802.1X / AWDL | 驱动功能缺口 |
 
@@ -908,9 +1014,9 @@ sudo nvram boot-args="$cur nvfbhidpi=1"
 同时要写进 config（`NVRAM → Add → boot-args`），并且把 `boot-args` 加进 `NVRAM → Delete` ——
 否则 OpenCore 的"只写不存在的键"规则会让它下次启动就丢失。
 
-**② 升级到驱动 2.6.3 或更新**
+**② 驱动要 2.6.3 或更新**
 
-2.6.3 的 #354 才把 scaled 模式标记为 `kDisplayModeValidForHiResFlag`，「看起来像」尺寸才会出现在「显示器」里。
+2.6.3 的 #354 把 scaled 模式标记为 `kDisplayModeValidForHiResFlag`，「看起来像」尺寸才出现在「显示器」里（现在用 3.1，照样生效）。
 
 ## 生效验证
 
@@ -971,9 +1077,9 @@ HiDPI 数量: 9
 
 - [ ] 内置麦克风：需要 macOS 版 ACP6x 驱动（见第十节）
 - [ ] 关机断电：已定位到"外接 USB 设备在 S5 保持唤醒"，尚未找到软件层解法
-- [ ] 图标残影：默认（玻璃）图标样式的图层渲染错位，2.6.3 未修；上报材料已备
+- [ ] 图标残影：默认（玻璃）图标样式的图层渲染错位，3.1 未修；上报材料已备
 - [ ] 非整倍 HiDPI：`nvfbhidpi=1` 已允许 2× 桌面，但驱动未把 scaled 模式暴露给 macOS
-- [ ] 亮度持久化：2.6.3 的 PR #312 在本机不生效，继续用自建 LaunchDaemon（见第三节）
+- [ ] 亮度持久化：PR #312 在本机不生效，继续用自建 LaunchDaemon（见第三节）
 - [ ] AirDrop / AWDL：驱动无 `awdl0`；移植 Owly 的可行性、工作量与验证方法见 [docs/airdrop-feasibility.md](docs/airdrop-feasibility.md)
 
 ---
