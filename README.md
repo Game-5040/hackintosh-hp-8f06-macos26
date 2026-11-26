@@ -1,8 +1,9 @@
 # HP 笔记本（Ryzen 9 9955HX + RTX 5070）黑苹果 macOS 26 Tahoe 实战记录
 
-> 在 HP 8F06 上**全新安装** macOS 26，让显示、亮度、Wi-Fi、蓝牙、音频输出、电池、USB、双系统引导全部可用。
-> 当前系统：**macOS 26.7.3（25G342）**，驱动 NVIDIA **3.1** + **WTLWireless 0.15.0**（Wi-Fi 与蓝牙同一个包）+ BlueToolFixup 2.7.2 / LegionBtFix 0.3.0。
-> 已知缺口：内置麦克风、睡眠（无 S3）、AirDrop（无 AWDL）、关机断电（待查）、部分图标残影（3.1 仍有）、iPhone 5 GHz 热点。
+> 在 HP 8F06 上**全新安装** macOS 26，让显示、亮度、Wi-Fi、蓝牙、音频输出、**内置麦克风**、**Siri**、电池、USB、三系统引导全部可用。
+> 当前系统：**macOS 26.7.3（25G342）**，驱动 NVIDIA **3.1** + **WTLWireless 0.15.0**（Wi-Fi 与蓝牙同一个包）+ BlueToolFixup 2.7.2 / LegionBtFix **0.3.0**。
+> 内置麦克风不是"找到个驱动装上"，而是**自己写的**：kext（`ACPCapture`，ACP6x PDM DMA）+ HAL 插件（`ACPMicPlugin`，用户态 DSP）。独立仓库：<https://github.com/Game-5040/acp6x-pdm-macos>。
+> 已知缺口：睡眠（无 S3）、AirDrop（无 AWDL）、关机断电（待查）、部分图标残影（3.1 仍有）、iPhone 5 GHz 热点。
 
 ## 机器
 
@@ -30,8 +31,10 @@
 | 音频输出 | ✅ | `AppleALC` 1.9.9 + **`SimpleHDA` 1.0.0** + layout 11；驱动 2.7 起自带 `NMXAudio`，实测接管了 ALC245 输出 |
 | 电池 / 充电状态 | ✅ | `SSDT-AC` + `_PSR`/`_Q20` 重命名（26 上充电实时更新；"电源适配器已连接"指示不显示） |
 | Windows 双系统引导 | ✅ | `LauncherOption = Full` + 自定义 `Entries` 图标 |
+| Ubuntu 三系统引导 | ✅ | `OpenLinuxBoot` + `Ext4Dxe`（OC 直接起内核，不经 GRUB/shim）；BLSpec 把名字改成 `Ubuntu` |
 | USB 端口映射 | ✅ | `USBToolBox` + 手工修正的 `UTBMap`（9 个端口，内部 255） |
-| 内置麦克风 | ❌ | 挂在 AMD ACP6x（非 HDA），macOS 无驱动 |
+| 内置麦克风 | ✅ | **自研**：`ACPCapture.kext`（ACP6x PDM DMA）+ `ACPMicPlugin.driver`（HAL 输入，含高通/AGC/门限） |
+| Siri / 听写 | ✅ | HAL 插件暴露 `'imic'` 数据源控件（Siri 只认这个，见第十节） |
 | 睡眠 | ❌ | 固件只声明 Modern Standby，无 S3 |
 | 关机断电 | ⚠️ | 关机变重启；已排除 WOL/USB 唤醒/PMEE/RTC，定位到**拔掉 USB 设备即可正常关机** |
 | 图标渲染残影 | ❌ | 默认（玻璃）图标样式下部分系统图标串图层；3.1 仍存在（不是 #363） |
@@ -355,6 +358,29 @@ ioreg -r -c WTLWireless -l -w0 | grep -E '"MtkState"|"MtkFrontEndActive"|"MtkCou
 
 本机 26.7.3（25G342）不在白名单里（只有 25G241 / 25G332 / 25G416），驱动会**回退到不高于当前系统的最新白名单构建 25G332** —— 实测照样能联网，只是这种跨版本组合官方没承诺。
 
+### 0.15.0 是什么（2026-11-12）
+
+- 把原来三个独立仓库（`mt7925-hackintosh-wifi` 的 `MtkWlan`、`-native` 的 `MtkWlanNative`、`-bluetooth` 的 `MtkBt`）合并成**一个包**：主体 `WTLWireless.kext` + 两个插件 `Contents/PlugIns/WTLWirelessNative.kext`、`WTLWirelessBt.kext`
+- 驱动条目必须**主体在前、插件在后**，且新旧不能共存（`MtkWlan*` / `MtkBt` 必须先删干净）
+- 芯片表扩展到 **MT7927**；`setCOUNTRY_CODE` 从 0.4.13 起真正下发（用 `ioreg -c WTLWireless -l | grep MtkCountry` 看）
+- 装完的标志：`WTLWireless` / `.Native` / `.Bt` 三个都显示 `0.15.0`，`MtkState = "W6 pass: en1 passing traffic"`，`MtkFrontEndActive = native`
+
+### 怎么知道有没有新版
+
+`github.com` 经常连不上，用 API 查最新 tag：
+
+```bash
+T=ghp_xxx   # 有 rate limit，带个 token 更稳
+for r in watchthelight-labs/WTLWireless watchthelight-labs/WTLLegionBtFix \
+         acidanthera/BrcmPatchRAM nullmoth/nvidia-macos-driver; do
+  printf '%-40s ' "$r"
+  curl -s -H "Authorization: token $T" "https://api.github.com/repos/$r/releases/latest" \
+    | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d.get("tag_name"),d.get("published_at","")[:10])'
+done
+```
+
+截至 2026-11-26 的最新版：`WTLWireless 0.15.0` / `WTLLegionBtFix 0.3.0` / `BrcmPatchRAM 2.7.2` / NVIDIA 驱动 `3.1` —— 本机都已是这个版本。升级网卡驱动的活脚本在 `tools/wtl-upgrade/install.sh`（备份 config、逐二进制校验 SHA-256、失败回滚、生成 `rollback.sh`）。
+
 ## 已知缺口
 
 | 缺口 | 表现 |
@@ -535,6 +561,48 @@ pmset -g batt
 \EFI\Microsoft\Boot\bootmgfw-orig.efi
 ```
 
+## Ubuntu：不要用 GRUB，让 OpenCore 自己起内核
+
+装 Ubuntu 之后会出现两个问题，其实同一个根因：
+
+1. macOS 进不去了（卡 `Halting on critical error`）；
+2. OC 里选 Ubuntu 还要过一道 GRUB 菜单，图标也不对。
+
+**根因**：Ubuntu 安装器会把 `EFI/Boot/bootx64.efi` 换成自己的 shim（966,768 字节，和 `EFI/ubuntu/shimx64.efi` 一模一样），固件于是走 shim→GRUB，OpenCore 根本没被加载；而 macOS 的 `boot.efi` 由 GRUB 拉起时，`boot\System\Library\KernelCollections\...` 这个只有 OC 才有的卷前缀就不成立，于是 `LD.LKC|R.2` 之后直接 `Halting on critical error`。
+
+**做法**（`UEFI → Drivers` 两条，顺序在前）：
+
+```
+Ext4Dxe.efi        40960 B   ← 读 ext4
+OpenLinuxBoot.efi  69632 B   ← 直接发现内核 + initrd
+```
+
+然后删掉手工的 `Misc → Entries`（指向 `\EFI\ubuntu\grubx64.efi` 的那条），OC 就会自己扫出 Linux 内核。想改条目名和图标，在 **ext4 根**写 BLSpec：
+
+```bash
+# Ubuntu 里执行（/boot 在 ext4 根上）
+sudo mkdir -p /loader/entries
+cat <<EOF | sudo tee /loader/entries/ubuntu.conf
+title Ubuntu
+version 7.0.0-44-generic
+linux /boot/vmlinuz-7.0.0-44-generic
+initrd /boot/initrd.img-7.0.0-44-generic
+options root=PARTUUID=<你的 root 分区 PARTUUID> ro quiet splash
+EOF
+
+sudo cp /boot/efi/EFI/OC/Resources/image/Acidanthera/GoldenGate/Ubuntu.icns /.VolumeIcon.icns
+echo Ubuntu | sudo tee /.contentFlavour
+```
+
+四个坑：
+
+- **驱动条目要克隆完整字段**：手写 `Path/Enabled/LoadEarly/Arguments` 会被 `ocvalidate` 判 `Missing key Comment` / `HideVerbose`，`Serialisation returns 5 errors`；
+- **`RequestBootVarRouting` 在 1.0.8 里不存在**，写进 `Misc → Boot` 或 `Misc → Security` 都报 `No schema for ...`；
+- **BLSpec 只能放 ext4 根，不能放 ESP**：放 ESP 上 OC 会先读它、再去 ext4 找内核，日志里是 `LNX: /boot/vmlinuz-... not found`，条目必废；
+- **别动 `PickerAttributes` 的 `USE_VOLUME_ICON` 位**：macOS 条目的图标唯一来源就是 Preboot 里的 `.VolumeIcon.icns`，去掉这一位 macOS 图标会变回通用图标。
+
+还有一个容易误判的现象：在 Ubuntu 里**改过刷新率**之后 warm reboot，macOS 会卡 Logo 或直接 `Halting on critical error`；不改刷新率、或者改完**关机**（ACPI S5 真断电）就没问题。刷新率是 GPU/面板的运行时状态，不落盘，warm reset 不会复位它。
+
 ## 两个坑
 
 - **`Misc → Entries` 只接受 UEFI 设备路径**，写文件路径会报"路径无效"。文件路径要用 `BlessOverride`。
@@ -575,57 +643,132 @@ OCVAR: Setting NVRAM 7C436110-...:boot-args - ignored, exists
 
 ---
 
-# 十、未解决：内置麦克风
+# 十、内置麦克风：自研 ACP6x PDM 驱动（kext + HAL 插件）
 
-## 现象
+> 代码与详细设计在独立仓库：<https://github.com/Game-5040/acp6x-pdm-macos>
+> 这一节只记结论、关键数据和踩过的坑。
 
-- 录音只有底噪（"滋滋"声）
-- 录音时扬声器跟着波形响（回环）
+## 现象：麦克风不在声卡上
+
+- 录音只有底噪、说话没声；录音时扬声器跟着波形响（那是把输出当成了输入）
 - Windows 下正常
+- ALC245 的输入节点在 macOS 里存在，但实测 peak = **0.000275**（就是噪声）
 
-## 排查过程（错误的方向）
+三条证据说明它挂在 AMD ACP6x 上，不在 Realtek codec 上：
 
-花了两天在 ALC245 上折腾：
+1. **BIOS 没给 codec 配 DMIC**：AppleALC 的 layout 11/12/13 都不写 `ConfigData`，读到 `0x12 = 0x411111f0`（未连接）就是 BIOS 默认值；有 DMIC 的机器是 `0x90a60130`。
+2. **DSDT 里有 AMD ACP**：`Device (ACP) { _HID "AMDI0063" }`，另有 `HID0`（`AMDI0063`，`_CRS` 给 `0xFEC13000/0x200`）。
+3. **Windows 设备管理器**：麦克风挂在 **AMD Audio CoProcessor** 下。
+
+## 为什么没有现成驱动
+
+- [`AMDMicrophone`](https://github.com/qhuyduong/AMDMicrophone) 只支持 Renoir（ACP3x），代码里 `if (revisionId == 0x1)`，我们的 ACP 是 **`0x62`**，直接 `return NULL`
+- 搜遍 15 个 fork，没有一个扩展到新平台
+- [`acp6x-omen-dkms`](https://github.com/NevetScar/acp6x-omen-dkms) 是同款机器的 **Linux** 补丁（board `8F06`），macOS 加载不了 —— 但它是蓝本
+
+## 先证明硬件能录（Phase 0）
+
+在 Ubuntu 里装那个 DKMS 补丁，`arecord` 立刻能录到人声（开头有一声爆破音）。这一步很重要：**在写任何 macOS 代码之前，先确认"硬件 + 时钟 + 供电"这条链是通的**。
+
+顺手纠正一个此前的误判：`acp6x_chip_offset_byte.h` 里的 `0x1242C04` 是**绝对地址**，Linux 的 `acp6x_readl(base + REG)` 会减掉 `ACP6x_PHY_BASE_ADDRESS (0x1240000)`，所以真实访问是 **BAR0 + 0x2C04**。256 KB 的 BAR 完全够用，之前"寄存器在 18 MB 外"的结论是读错了头文件。
+
+## 探针：先只读，别写
+
+`probe/ACPProbe.kext` 是分级只读探针（`stage 0` 只读 PCI 配置空间，`stage 1/2` 才碰 MMIO）。本机结果：
 
 ```
-- 把 0x12 引脚改成 Mic at Int, Digital（0x90a60130）
-- 试遍 0x19 / 0x1a / 0x1b / 0x1d 四个候选引脚
-- 确认 mixer 0x23 有 5 个输入，第 5 个（索引 4）就是 0x12
-- 开 alcverbs=1 调用 alc-verb 改引脚、改 mixer、改 amp
+stage 0: revision=0x62  vendor=0x1022 device=0x15e2
+         classcode=0x048000  barPhys=0xFC980000  barLen=0x40000
+stage 1: pinConfig=4      pgfsmStatus=0
+stage 2: PDM_CLKDIV=192   WOV_CLK_CTRL=1   DECIMATION=2
+         NO_OF_CHANNELS=1 MISC_CTRL=0      PDM_ENABLE=0   DMA_ENABLE=0
+         RINGBUFADDR/SIZE/WATERMARK=0  ATU_BASE/PAGE=0  SCRATCH_REG_0=0x427C00C3
 ```
 
-结论：**全部无效，因为麦克风根本不在 codec 上。**
+两个结论：
 
-## 真正的结论
+- `pinConfig = 4` **不在** Linux 的 `ACP_CONFIG_{0,1,2,3,9,15}` 白名单里 → BIOS 已经把 ACP 配成 PDM/DMIC 模式，不需要我们改引脚；
+- `pgfsmStatus = 0` = `ACP_POWERED_ON` → **ACP 已经上电，不需要任何电源序列**（Linux 那套 `acp_init()` 全砍）。
 
-三条证据：
+## 三道坎（都是"报错信息骗人"）
 
-1. **BIOS 没给 codec 配置 DMIC**
-   AppleALC 的 layout 11/12/13 **都不写 `ConfigData`**（引脚配置），所以读到的 `0x12 = 0x411111f0`（未连接）就是 **BIOS 默认值**。
-   对比有 DMIC 的机器（Minisforum / Acer），BIOS 值是 `0x90a60130`（启用）。
+1. **`_kmod_info`**：没有 Xcode，`ld -kext` 不生成这个符号，OC 只报 `Prelinked injection ... - Invalid Parameter`（真实原因是 `Kext->Context.VirtualKmod == 0` → `EFI_UNSUPPORTED`，被上层折成了 `EFI_INVALID_PARAMETER`）。解法是按 `KMOD_INFO_64_V1` 的 196 字节布局手写一个：`pragma pack(4)`、`info_version=1`、`id=0xffffffff`、`name[64]`、`version[64]`、`reference_count=-1`、`start/stop` 指向桩函数；**源码里的变量名必须写 `kmod_info`**（写 `_kmod_info` 会变成 `__kmod_info`）。
+2. **Info.plist 依赖**：缺 `com.apple.iokit.IOPCIFamily` 和 `com.apple.kpi.unsupported`（或 `kpi.*` 版本写成 `8.0.0`）时，OC 报的是**同一条** `Invalid Parameter`。最后是拿一个能正常注入的 kext 的 plist 当模板才拆开。
+3. **`start()` 里写硬件 = 断电**：把 PTE 表写进 `start()`，开机在进度条处直接黑屏断电，**没有 panic 文件**（AMD 平台上是机器检查，不是软件崩溃）。最终 `start()` 只做 `IOService::start` + 取 BAR 长度 + `registerService()`，所有寄存器写入都由用户态方法触发。
 
-2. **DSDT 里有 AMD ACP**
+## DMA 与采样
+
+- 环 32 KB、周期 8 KB、4 MB 连续缓冲；PTE 表写在 `ACP_SCRATCH_REG_0`（`ATU_BASE_ADDR_GRP_1 = 0x03800000 | BIT(31)`、页大小 4 KB、每页 8 字节 low/high）
+- **`ACP_WOV_PDM_NO_OF_CHANNELS` 要写 `0`（TWO_CH）**，`DECIMATION_FACTOR = 2`；本机固件留的是 `1`，于是硬件按 4×32bit 出帧（后两路恒 `0x80000000`）
+- 使能前先 `FIFO_FLUSH` + 20 ms，再丢前 200 ms 样本，爆音就没了
+- 数据是 **S32_LE / 2ch / 48 kHz**，但带巨大直流偏置（左 -0.138、右 -0.424 FS），必须高通；相邻样本差比绝对值平滑得多，说明确实是 32-bit 而不是 16/24-bit
+
+## 用户态 DSP（HAL 插件）
+
+`ACPMicPlugin.driver` 是 input-only 的 `AudioServerPlugIn`：2 通道 / 48 kHz / float32，按 `writeBytes` 增量从 4 MB 环取数。链路：
 
 ```
-Device (ACP) { Name (_HID, "AMDI0063") }
+90/180 Hz 二阶高通 → 一阶 DC 阻断 → 3.5 kHz presence(+7 dB)
+→ 语音包络 AGC(目标 0.10) → 门限(开门 2.5×、关门 1.4×、hangover 320 ms)
+→ tanh 软限幅 → 音量
 ```
 
-`AMDI0063` 是 AMD 音频协处理器（SoundWire/PDM）。
+几个必须记住的坑：
 
-3. **Windows 设备管理器确认**：麦克风挂在 **AMD Audio CoProcessor** 下，不是 Realtek。
+- **一阶高通的 `1/(1-R)` 是 2000 倍**：把原始 `x` 存进上一级的历史变量，稳态会变成 `-2000 × 直流`，语音被整个压没（表现是"录不到音"，但 kext 的 `writeBytes` 在涨）；
+- **逐块 AGC 会模糊**：音节之间反复上下，听感是"闷、不清楚"；改成语音包络（快的跟、慢的落）之后就干净了；
+- **句尾被切是门限关门太快**：加迟滞 + 320 ms hangover；
+- **硬件时钟**：`GetZeroTimeStamp` 必须用 kext 的 `writeBytes` 做 discipline，否则纯主机时钟与 PDM 时钟漂移，最后每个 IO 周期都 `kIOReturnIsoTooOld`。
 
-## 为什么没有 macOS 驱动
+实测（10 秒）：说话 **-18.7 dBFS**、静音 **-45.0 dBFS**、SNR **26.3 dB**、峰值 -5.0 dBFS、无削波。
 
-- 唯一的 macOS ACP 麦克风驱动 [`AMDMicrophone`](https://github.com/qhuyduong/AMDMicrophone) **只支持 Renoir**（ACP3x）
-- 它检查 PCI revision：`if (revisionId == 0x1)`，我们的 ACP 是 **`0x62`**，直接 `return NULL`
-- 搜遍 15 个 forks，**没有一个扩展到新平台**
-- [`acp6x-omen-dkms`](https://github.com/NevetScar/acp6x-omen-dkms) 是同款机器的 **Linux** 补丁（支持 board `8F06`），但那是 Linux 内核模块，macOS 无法加载
+## Siri 的门槛：一个叫 `'imic'` 的数据源
 
-## 结论
+麦克风在系统里能录、浏览器能用、听写能用，但 Siri 一直显示"连接麦克风"。查 TCC 是白费：`corespeechd` 自带 `com.apple.private.tcc.allow`，日志里是 `Auth:Allowed (Entitled)`。
 
-内置麦克风需要写一个 **macOS ACP6x (Yellow Carp) 驱动**，工作量数周，参考实现是 Linux 的 `acp6x-pdm-dma.c`。
+真正的原因写在 [LatSOFAudio](https://github.com/shubhambanekar/LatSOFAudio) 的 `ARCHITECTURE.md`「Siri's microphone gate」里：
 
-现实方案：**USB 麦克风** 或 **蓝牙耳机**。
+- `+[AVVCAudioDeviceManager IsDeviceBuiltIn:]` 只在 transport 是 `'bltn'` **且输入作用域的 `kAudioDevicePropertyDataSources`（`'ssc#'`）第一项是 `'imic'`** 时返回真；
+- CoreSpeech 按 transport 分类路由，`'bltn'` 设备必须报 `'imic'`/`'emic'`，否则路由为 nil —— 即使录音路径完全正常；
+- `'usb '`、`'blue'`、`'line'` 不做这个检查（所以 USB/蓝牙麦一直能用）。
+
+关键实现细节：**不能直接给设备回 `'ssc#'`**。coreaudiod 是从设备的 `kAudioObjectPropertyControlList` 里找 `'dsrc'`（`kAudioDataSourceControlClassID`）控件**合成**这两个属性的，直接答设备属性会一直返回 `'who?'`（`kAudioHardwareUnknownPropertyError` = 2003332927）。所以必须新增一个控件对象：
+
+```
+kObjectID_DataSource_Input = 6
+  BaseClass     = 'slct'   (selector control)
+  Class         = 'dsrc'   (data source)
+  AvailableItems= ['imic']
+  CurrentItem   = 'imic'
+  ItemKind      = 'dsrc'
+```
+
+并且把设备的 `ControlList` 从 2 项改成 3 项（`ACPMic_ControlDataSize` 里那个 `2 * sizeof(AudioObjectID)` 也要改，只改 getter 不改 size 会出现 `size=8` 却返回 3 个）。改完之后 `DataSource('ssrc')` 返回 `'imic'`、`DataSources('ssc#')` 返回 1 项，**Siri 就认了**。
+
+## 安装
+
+```bash
+# 1) kext（需要先在 config.plist 的 Kernel → Add 里加一条）
+cd capture && ./build.sh
+sudo ../tools/install-capture.sh install     # 备份 config、逐文件校验、ocvalidate，失败自动回滚
+# 重启
+
+# 2) HAL 插件（不需要重启）
+cd ../plugin && ./build.sh
+sudo ./install.sh                            # 拷到 /Library/Audio/Plug-Ins/HAL/ 并重启 coreaudiod
+```
+
+验证：
+
+```bash
+ioreg -rc ACPCapture -l | grep -E 'writeBytes|dmaEnable|ticks'
+# 应该看到 writeBytes 在涨、dmaEnable=3、ticks 在涨；不动就说明 DMA 没起来
+
+system_profiler SPAudioDataType | grep -A3 "AMD ACP PDM"
+# 应该出现 AMD ACP PDM Microphone（2 通道 / 48000）
+
+sudo ./tools/acpcap/acpcap 5 /tmp/test.wav   # 直接录 5 秒
+```
 
 ---
 
@@ -741,7 +884,12 @@ OC: Watchdog status is 0
 | OC 菜单里没有 Windows | `BlessOverride` 为空 | 加 `\EFI\Microsoft\Boot\bootmgfw-orig.efi` |
 | `Misc → Entries` 报路径无效 | Entries 只收 UEFI 设备路径 | 改用 `BlessOverride` |
 | 26 上没声音 | AppleHDA 被移除 | SimpleHDA + AppleALC + layout 11 |
-| 麦克风只有噪音 | 麦克风在 AMD ACP 上，不在 codec | 无解，用 USB 麦克风 |
+| 麦克风只有噪音 | 麦克风在 AMD ACP6x 上，不在 ALC245 codec | 自研 ACP6x PDM 驱动（见第十节） |
+| Ubuntu 装完后 macOS 卡在 `Halting on critical error` | `EFI/Boot/bootx64.efi` 被 Ubuntu 的 shim 覆盖，`boot.efi` 由 GRUB 拉起 | 把 `bootx64.efi` 换回 OC（24,576 B），并用 `OpenLinuxBoot` 直启 |
+| OC 报 `Prelinked injection ... - Invalid Parameter` | ① kext 缺 `_kmod_info`；② `Info.plist` 缺 `com.apple.iokit.IOPCIFamily` / `com.apple.kpi.unsupported` | 手写 `_kmod_info`；依赖抄能正常注入的 kext |
+| 装了自己的 kext 后开机直接断电（无 panic） | `start()` 里写 ACP 寄存器 / 写 PTE 表，ACP 未就绪时触发机器检查 | 硬件动作全部挪到用户态方法里触发 |
+| OpenLinuxBoot 条目报 `LNX: ... not found` | BLSpec `.conf` 被放到了 ESP 上 | 只放 ext4 根（`/loader/entries/`） |
+| Siri 显示"连接麦克风"，但录音/听写都正常 | Siri 只认 transport `'bltn'` 且数据源为 `'imic'` 的设备 | HAL 插件必须提供 `'dsrc'` 数据源控件（见第十节） |
 | 处理器名称显示 `16-Core Intel Xeon W` 或 `Unknown` | 名字来自 Apple 的 SMBIOS 131 号表（无 AMD 条目） | 用 RestrictEvents：`revpatch=…,cpuname` + `revcpu=1` + NVRAM `revcpuname`（见第十七节） |
 | 重启后亮度不恢复（面板总是最亮） | 驱动不保存亮度；且 `brightness` 参数写了不生效，真正生效的是 `linear-brightness` | 读写 `linear-brightness` + 两个 LaunchDaemon（见第三节「持久化」） |
 | OC 菜单突然多出 Recovery / `1401:` 工具条目 | 1401 写配置时重置了 `HideAuxiliary`（且它会新装两个工具，默认非辅助） | `HideAuxiliary = true`，并把工具条目的 `Auxiliary` 设为 `true` |
@@ -774,7 +922,10 @@ OC: Watchdog status is 0
 | [laobamac/SimpleHDA](https://github.com/laobamac/SimpleHDA) | 在 Tahoe 上恢复 AppleHDA |
 | [acidanthera/AppleALC](https://github.com/acidanthera/AppleALC) | 音频 layout |
 | [acidanthera/BrcmPatchRAM](https://github.com/acidanthera/BrcmPatchRAM) | BlueToolFixup |
-| [NevetScar/acp6x-omen-dkms](https://github.com/NevetScar/acp6x-omen-dkms) | 同款机器的 Linux ACP6x 麦克风补丁（macOS 无法使用，供参考） |
+| [NevetScar/acp6x-omen-dkms](https://github.com/NevetScar/acp6x-omen-dkms) | 同款机器的 Linux ACP6x 麦克风补丁（macOS 用不了，但寄存器序列与 DMI 绕过是蓝本） |
+| [Game-5040/acp6x-pdm-macos](https://github.com/Game-5040/acp6x-pdm-macos) | **本机内置麦克风的 macOS 驱动**（kext + HAL 插件，本文第十节的代码） |
+| [shubhambanekar/LatSOFAudio](https://github.com/shubhambanekar/LatSOFAudio) | Intel SOF 版 HAL 插件；`ARCHITECTURE.md` 里「Siri's microphone gate」一节解释了 `'imic'` 门槛 |
+| [DexterSLamb/CmlSOFAudio](https://github.com/DexterSLamb/CmlSOFAudio) | 同上（Comet Lake 版），kext 用 `IODMACommand` + 用户态 `IOConnectMapMemory64` 的写法可抄 |
 
 ---
 
@@ -1075,7 +1226,8 @@ HiDPI 数量: 9
 
 # 十九、后续计划
 
-- [ ] 内置麦克风：需要 macOS 版 ACP6x 驱动（见第十节）
+- [x] 内置麦克风：自研 ACP6x PDM 驱动已完成（kext + HAL 插件，见第十节，代码单独成库）
+- [ ] 麦克风进阶：双麦阵列波束成形/指向性（硬件是两只间距 2–3 cm 的 PDM 麦，互相关 0.96）、更稳的底噪估计
 - [ ] 关机断电：已定位到"外接 USB 设备在 S5 保持唤醒"，尚未找到软件层解法
 - [ ] 图标残影：默认（玻璃）图标样式的图层渲染错位，3.1 未修；上报材料已备
 - [ ] 非整倍 HiDPI：`nvfbhidpi=1` 已允许 2× 桌面，但驱动未把 scaled 模式暴露给 macOS
